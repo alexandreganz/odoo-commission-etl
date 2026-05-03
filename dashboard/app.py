@@ -497,186 +497,189 @@ with pivot_tab1:
     )
 
 with pivot_tab2:
-    st.caption("Arraste os campos para linhas, colunas e valores. Use o seletor de renderização para alternar entre tabela, heatmap e gráficos.")
+    st.caption("Configure linhas, colunas, valores e filtros. A configuração é preservada ao alterar filtros laterais.")
 
-    include_detail = st.checkbox(
-        "Incluir Cliente e Produto (carregamento mais lento)",
-        value=False,
-    )
-
-    # Pre-aggregate to keep payload small
-    if include_detail:
-        grp_cols = ["ano", "mes_nome", "tipo_norm", "vendedor", "familia_grupo", "cliente", "produto_nome"]
-    else:
-        grp_cols = ["ano", "mes_nome", "tipo_norm", "vendedor", "familia_grupo"]
-
-    pivot_df = (
-        fdf.groupby(grp_cols, dropna=False)
-        .agg({"vr_nf": "sum", "quantidade": "sum"})
-        .reset_index()
-    )
-
-    col_rename = {
-        "ano": "Ano", "mes_nome": "Mês", "tipo_norm": "Operação",
-        "vendedor": "Vendedor", "familia_grupo": "Família/Grupo",
-        "cliente": "Cliente", "produto_nome": "Produto",
-        "vr_nf": "Valor NF (R$)", "quantidade": "Quantidade",
+    FIELD_OPTIONS = {
+        "Ano": "ano",
+        "Mês": "mes_nome",
+        "Operação": "tipo_norm",
+        "Vendedor": "vendedor",
+        "Família/Grupo": "familia_grupo",
+        "Cliente": "cliente",
+        "Produto": "produto_nome",
     }
-    pivot_df = pivot_df.rename(columns=col_rename)
-    st.info(f"📊 {len(pivot_df):,} linhas agregadas carregadas no pivô interativo")
 
-    # Build pivottablejs HTML with chart renderers
-    pivot_json = pivot_df.to_json(orient="records", force_ascii=False)
+    # Initialize session_state defaults
+    if "dyn_rows" not in st.session_state:
+        st.session_state["dyn_rows"] = ["Ano", "Vendedor"]
+    if "dyn_cols" not in st.session_state:
+        st.session_state["dyn_cols"] = ["Mês"]
+    if "dyn_value" not in st.session_state:
+        st.session_state["dyn_value"] = "Valor NF (R$)"
+    if "dyn_agg" not in st.session_state:
+        st.session_state["dyn_agg"] = "Soma"
 
-    pivotui_html = f"""
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pivottable/2.23.0/pivot.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.13.2/jquery-ui.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pivottable/2.23.0/pivot.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js"></script>
-    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pivottable/2.23.0/plotly_renderers.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pivottable/2.23.0/d3_renderers.min.js"></script>
-    <style>
-        body {{ margin: 0; padding: 8px; font-family: 'Segoe UI', -apple-system, sans-serif; }}
+    cfg1, cfg2 = st.columns(2)
+    with cfg1:
+        sel_rows = st.multiselect(
+            "📊 Linhas",
+            list(FIELD_OPTIONS.keys()),
+            default=st.session_state["dyn_rows"],
+            key="dyn_rows",
+        )
+    with cfg2:
+        available_cols = [f for f in FIELD_OPTIONS if f not in sel_rows]
+        default_cols = [c for c in st.session_state["dyn_cols"] if c in available_cols]
+        sel_cols = st.multiselect(
+            "📊 Colunas",
+            available_cols,
+            default=default_cols,
+            key="dyn_cols",
+        )
 
-        /* Drag area styling */
-        .pvtUi {{ font-size: 13px; }}
-        .pvtAxisContainer {{
-            background: linear-gradient(135deg, #f8f9fa, #e8ecf0);
-            border: 1px dashed #b0bec5;
-            border-radius: 8px;
-            padding: 8px;
-            min-height: 50px;
-        }}
-        .pvtAxisContainer li span.pvtAttr {{
-            background: #0f4c81;
-            color: white;
-            border: none;
-            border-radius: 16px;
-            padding: 4px 12px;
-            font-size: 12px;
-            font-weight: 500;
-            cursor: grab;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-            transition: all 0.2s;
-        }}
-        .pvtAxisContainer li span.pvtAttr:hover {{
-            background: #2196F3;
-            box-shadow: 0 2px 6px rgba(33,150,243,0.3);
-            transform: translateY(-1px);
-        }}
-        .pvtTriangle {{ color: white !important; }}
+    cfg3, cfg4, cfg5, cfg6 = st.columns(4)
+    with cfg3:
+        sel_value = st.radio("Valor", ["Valor NF (R$)", "Quantidade"], horizontal=True, key="dyn_value")
+    with cfg4:
+        sel_agg = st.radio("Agregação", ["Soma", "Média", "Contagem"], horizontal=True, key="dyn_agg")
+    with cfg5:
+        search_prod = st.text_input("🔍 Produto", placeholder="Buscar produto...")
+    with cfg6:
+        search_cli = st.text_input("🔍 Cliente", placeholder="Buscar cliente...")
 
-        /* Dropdowns */
-        .pvtAggregator, .pvtRenderer {{
-            font-size: 12px;
-            padding: 5px 8px;
-            border: 1px solid #cfd8dc;
-            border-radius: 6px;
-            background: white;
-            color: #37474f;
-        }}
+    # Apply product/client search filters
+    dyn_df = fdf.copy()
+    if search_prod:
+        dyn_df = dyn_df[dyn_df["produto_nome"].str.contains(search_prod, case=False, na=False)]
+    if search_cli:
+        dyn_df = dyn_df[dyn_df["cliente"].str.contains(search_cli, case=False, na=False)]
 
-        /* Table */
-        table.pvtTable {{
-            font-size: 12px;
-            border-collapse: collapse;
-            margin-top: 8px;
-        }}
-        table.pvtTable thead tr th {{
-            background: #0f4c81;
-            color: white;
-            padding: 8px 12px;
-            font-weight: 600;
-            border: 1px solid #0d3d6b;
-        }}
-        table.pvtTable tbody tr th {{
-            background: #f0f4f8;
-            font-weight: 600;
-            padding: 6px 10px;
-            color: #37474f;
-            border: 1px solid #e0e4e8;
-        }}
-        table.pvtTable tbody tr td {{
-            padding: 6px 10px;
-            text-align: right;
-            border: 1px solid #e8ecf0;
-            color: #1a1a2e;
-        }}
-        table.pvtTable tbody tr:hover td {{
-            background: #e3f2fd !important;
-        }}
-        /* Grand total rows/cols */
-        table.pvtTable .pvtTotalLabel {{
-            font-weight: 700;
-            background: #e8ecf0 !important;
-        }}
-        table.pvtTable .pvtTotal, table.pvtTable .pvtGrandTotal {{
-            font-weight: 700;
-            background: #e8ecf0 !important;
-            color: #0f4c81;
-        }}
+    value_col = "vr_nf" if sel_value == "Valor NF (R$)" else "quantidade"
+    agg_func = {"Soma": "sum", "Média": "mean", "Contagem": "count"}[sel_agg]
 
-        /* Heatmap colors */
-        .pvtVal {{ transition: background 0.3s; }}
+    if not sel_rows:
+        st.warning("Selecione pelo menos um campo para as linhas.")
+    elif dyn_df.empty:
+        st.info("Nenhum dado encontrado com os filtros aplicados.")
+    else:
+        row_fields = [FIELD_OPTIONS[f] for f in sel_rows]
+        col_fields = [FIELD_OPTIONS[f] for f in sel_cols] if sel_cols else []
 
-        /* Filter box */
-        .pvtFilterBox {{
-            font-size: 12px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        }}
-        .pvtFilterBox button {{
-            border-radius: 4px;
-            font-size: 11px;
-        }}
-        .pvtSearch {{ border-radius: 4px; padding: 4px 8px; }}
+        if col_fields:
+            grp_fields = row_fields + col_fields
+            grp_result = dyn_df.groupby(grp_fields, dropna=False)[value_col].agg(agg_func).reset_index()
 
-        /* Plotly chart area */
-        .pvtRendererArea {{ min-height: 400px; }}
-    </style>
-    <div id="pivotOutput"></div>
-    <script>
-        $(function(){{
-            var data = {pivot_json};
+            # Pivot: rows × first col_field (only support one column dim for clean table)
+            if len(col_fields) == 1:
+                dyn_pivot = grp_result.pivot_table(
+                    index=row_fields,
+                    columns=col_fields[0],
+                    values=value_col,
+                    aggfunc="sum",
+                    fill_value=0,
+                )
+            else:
+                # Multiple column fields → use tuple column headers
+                dyn_pivot = grp_result.pivot_table(
+                    index=row_fields,
+                    columns=col_fields,
+                    values=value_col,
+                    aggfunc="sum",
+                    fill_value=0,
+                )
+        else:
+            # No column dimension — simple groupby table
+            dyn_pivot = dyn_df.groupby(row_fields, dropna=False)[value_col].agg(agg_func).reset_index()
+            dyn_pivot = dyn_pivot.set_index(row_fields)
+            dyn_pivot.columns = [sel_value]
 
-            // Merge all renderers: table + plotly + d3
-            var renderers = $.extend(
-                $.pivotUtilities.renderers,
-                $.pivotUtilities.plotly_renderers,
-                $.pivotUtilities.d3_renderers
-            );
+        # Sort month columns if Mês is the column dimension
+        if sel_cols and sel_cols[0] == "Mês" and len(col_fields) == 1:
+            ordered = [m for m in MONTH_ORDER if m in dyn_pivot.columns]
+            other = [c for c in dyn_pivot.columns if c not in MONTH_ORDER]
+            dyn_pivot = dyn_pivot[ordered + other]
 
-            $("#pivotOutput").pivotUI(data, {{
-                rows: ["Ano", "Vendedor"],
-                cols: ["Mês"],
-                vals: ["Valor NF (R$)"],
-                aggregatorName: "Sum",
-                rendererName: "Heatmap",
-                renderers: renderers,
-                sorters: {{
-                    "Mês": $.pivotUtilities.sortAs(["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"])
-                }},
-                rendererOptions: {{
-                    plotly: {{
-                        width: 900,
-                        height: 500
-                    }},
-                    heatmap: {{
-                        colorScaleGenerator: function(values) {{
-                            return d3.scale.linear()
-                                .domain([0, d3.max(values)])
-                                .range(["#f0f4f8", "#0f4c81"]);
-                        }}
-                    }}
-                }}
-            }});
-        }});
-    </script>
-    """
+        # Add total column
+        if isinstance(dyn_pivot.columns, pd.MultiIndex):
+            pass  # skip total for multi-level columns
+        else:
+            dyn_pivot["Total"] = dyn_pivot.sum(axis=1)
 
-    import streamlit.components.v1 as components
-    components.html(pivotui_html, height=750, scrolling=True)
+        # Format values
+        is_currency = (value_col == "vr_nf")
+
+        def fmt_dyn(v):
+            if v == 0:
+                return "—"
+            if is_currency:
+                if v == int(v):
+                    return f"R$ {int(v):,}"
+                return f"R$ {v:,.2f}"
+            if v == int(v):
+                return f"{int(v):,}"
+            return f"{v:,.2f}"
+
+        # Build heatmap colors
+        flat_vals = dyn_pivot.values.flatten()
+        flat_max = max(abs(v) for v in flat_vals if v != 0) if any(v != 0 for v in flat_vals) else 1
+
+        def dyn_cell_bg(val):
+            if val == 0 or flat_max == 0:
+                return ""
+            ratio = min(abs(val) / flat_max, 1)
+            if val < 0:
+                r, g, b = 255, int(235 - 60 * ratio), int(235 - 60 * ratio)
+            else:
+                r, g, b = int(230 - 70 * ratio), int(235 - 40 * ratio), 255
+            return f"background-color:rgb({r},{g},{b});"
+
+        # Render HTML table
+        col_labels = [str(c) for c in dyn_pivot.columns]
+        header_html = "".join(f"<th>{c}</th>" for c in col_labels)
+        row_label_header = " / ".join(sel_rows) if sel_rows else "—"
+
+        body_rows = []
+        for idx, row_data in dyn_pivot.iterrows():
+            # Build row label
+            if isinstance(idx, tuple):
+                label = " › ".join(str(i) for i in idx)
+            else:
+                label = str(idx)
+            display = label[:60] + "…" if len(label) > 60 else label
+
+            cells = "".join(
+                f'<td class="num" style="{dyn_cell_bg(row_data[c])}">{fmt_dyn(row_data[c])}</td>'
+                for c in dyn_pivot.columns
+            )
+            body_rows.append(f'<tr><td class="lbl">{display}</td>{cells}</tr>')
+
+        # Column totals row
+        if not isinstance(dyn_pivot.columns, pd.MultiIndex):
+            col_totals = dyn_pivot.sum()
+            total_cells = "".join(
+                f'<td class="total-num">{fmt_dyn(col_totals[c])}</td>' for c in dyn_pivot.columns
+            )
+            body_rows.append(f'<tr class="year-row"><td class="lbl">📊 Total</td>{total_cells}</tr>')
+
+        dyn_html = f"""
+        <div class="pivot-wrap">
+        <table>
+          <thead><tr><th class="lbl">{row_label_header}</th>{header_html}</tr></thead>
+          <tbody>{"".join(body_rows)}</tbody>
+        </table>
+        </div>
+        """
+
+        st.markdown(f"📊 **{len(dyn_pivot):,}** linhas  ·  {sel_agg} de {sel_value}")
+        st.markdown(dyn_html, unsafe_allow_html=True)
+
+        # Download
+        csv_dyn = dyn_pivot.reset_index().to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+        st.download_button(
+            "⬇️ Download CSV",
+            data=csv_dyn,
+            file_name="pivot_dinamico.csv",
+            mime="text/csv",
+        )
 
 st.caption(f"📊 {len(fdf):,} registros · R$ {total_revenue:,.0f} total filtrado")
