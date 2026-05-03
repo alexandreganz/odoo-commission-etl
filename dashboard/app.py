@@ -518,8 +518,6 @@ with pivot_tab2:
         st.session_state["dyn_cols"] = ["Mês"]
     if "dyn_value" not in st.session_state:
         st.session_state["dyn_value"] = "Valor NF (R$)"
-    if "dyn_agg" not in st.session_state:
-        st.session_state["dyn_agg"] = "Soma"
 
     cfg1, cfg2 = st.columns(2)
     with cfg1:
@@ -539,11 +537,9 @@ with pivot_tab2:
             key="dyn_cols",
         )
 
-    cfg3, cfg4, cfg5, cfg6 = st.columns(4)
+    cfg3, cfg5, cfg6 = st.columns(3)
     with cfg3:
         sel_value = st.radio("Valor", ["Valor NF (R$)", "Quantidade"], horizontal=True, key="dyn_value")
-    with cfg4:
-        sel_agg = st.radio("Agregação", ["Soma", "Média", "Contagem"], horizontal=True, key="dyn_agg")
     with cfg5:
         search_prod = st.text_input("🔍 Produto", placeholder="Buscar produto...")
     with cfg6:
@@ -557,7 +553,7 @@ with pivot_tab2:
         dyn_df = dyn_df[dyn_df["cliente"].str.contains(search_cli, case=False, na=False)]
 
     value_col = "vr_nf" if sel_value == "Valor NF (R$)" else "quantidade"
-    agg_func = {"Soma": "sum", "Média": "mean", "Contagem": "count"}[sel_agg]
+    agg_func = "sum"
 
     if not sel_rows:
         st.warning("Selecione pelo menos um campo para as linhas.")
@@ -672,7 +668,7 @@ with pivot_tab2:
         </div>
         """
 
-        st.markdown(f"📊 **{len(dyn_pivot):,}** linhas  ·  {sel_agg} de {sel_value}")
+        st.markdown(f"📊 **{len(dyn_pivot):,}** linhas  ·  Soma de {sel_value}")
         st.markdown(dyn_html, unsafe_allow_html=True)
 
         # Download
