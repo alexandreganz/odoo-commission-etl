@@ -576,105 +576,101 @@ with pivot_tab1:
                 r, g, b = int(230 - 70 * ratio), int(235 - 40 * ratio), 255
             return f"background-color:rgb({r},{g},{b});"
 
-        # Render HTML table with collapsible groups
+        # Render HTML table with multi-level collapsible tree
         col_labels = [str(c) for c in dyn_pivot.columns]
         header_html = "".join(f"<th>{c}</th>" for c in col_labels)
         row_level_names = sel_rows if len(sel_rows) > 1 else [sel_rows[0]] if sel_rows else ["—"]
-        row_header_html = "".join(f'<th class="lbl">{n}</th>' for n in row_level_names)
+        # Single header column for tree-style labels
+        row_header_html = '<th class="lbl">' + " / ".join(row_level_names) + '</th>'
 
         body_rows = []
         n_levels = len(row_level_names)
-        n_cols = len(col_labels)
+        tree_row_count = 0
 
         if n_levels >= 2 and isinstance(dyn_pivot.index, pd.MultiIndex):
             all_indices = list(dyn_pivot.index)
-            group_id = 0
+            all_data = [dyn_pivot.loc[idx] for idx in all_indices]
+            node_counter = [0]
 
-            # Build groups: identify first-level groups and their rows
-            groups = []
-            current_group_key = None
-            current_group_rows = []
-            for row_i, (idx, row_data) in enumerate(dyn_pivot.iterrows()):
-                idx_tuple = idx if isinstance(idx, tuple) else (idx,)
-                first_val = idx_tuple[0]
-                if first_val != current_group_key:
-                    if current_group_rows:
-                        groups.append((current_group_key, current_group_rows))
-                    current_group_key = first_val
-                    current_group_rows = []
-                current_group_rows.append((row_i, idx_tuple, row_data))
-            if current_group_rows:
-                groups.append((current_group_key, current_group_rows))
+            def make_id():
+                node_counter[0] += 1
+                return f"n{node_counter[0]}"
 
-            for grp_key, grp_rows in groups:
-                gid = f"g{group_id}"
-                group_id += 1
-                n_rows_in_group = len(grp_rows)
+            def build_tree(indices_data, level, parent_id, parent_path):
+                """Recursively build tree rows for each grouping level."""
+                nonlocal tree_row_count
+                if level >= n_levels:
+                    return
 
-                # Compute subtotal for this group
-                grp_subtotals = {}
-                for c in dyn_pivot.columns:
-                    grp_subtotals[c] = sum(r[2][c] for r in grp_rows)
+                # Group by current level value
+                from collections import OrderedDict
+                groups = OrderedDict()
+                for idx_tuple, row_data in indices_data:
+                    key = idx_tuple[level]
+                    if key not in groups:
+                        groups[key] = []
+                    groups[key].append((idx_tuple, row_data))
 
-                display_key = str(grp_key)
-                display_key = display_key[:40] + "…" if len(display_key) > 40 else display_key
+                is_leaf_level = (level == n_levels - 1)
 
-                # First-level header cell spans all detail rows
-                first_cell = (
-                    f'<td class="lbl grp-toggle" rowspan="{n_rows_in_group}" '
-                    f'data-gid="{gid}" '
-                    f'style="font-weight:700; background:#e8ecf0; color:#0f4c81; '
-                    f'border-right:2px solid #cfd8dc; cursor:pointer; user-select:none;">'
-                    f'<span class="toggle-icon" id="icon-{gid}">▼</span> {display_key}</td>'
-                )
+                for grp_key, grp_items in groups.items():
+                    nid = make_id()
+                    display = str(grp_key)
+                    display = display[:50] + "…" if len(display) > 50 else display
+                    indent = level * 20
+                    child_class = f"child-{parent_id}" if parent_id else ""
 
-                # Subtotal row (hidden by default, shown when collapsed)
-                sub_cells = "".join(
-                    f'<td class="num" style="font-weight:700; background:#e8ecf0;">{fmt_dyn(grp_subtotals[c])}</td>'
-                    for c in dyn_pivot.columns
-                )
-                sub_header = (
-                    f'<td class="lbl grp-toggle" data-gid="{gid}" '
-                    f'style="font-weight:700; background:#e8ecf0; color:#0f4c81; '
-                    f'border-right:2px solid #cfd8dc; cursor:pointer; user-select:none;">'
-                    f'<span class="toggle-icon">▶</span> {display_key}</td>'
-                )
-                sub_filler = "".join(f'<td class="lbl" style="background:#e8ecf0;">—</td>' for _ in range(n_levels - 1))
-                body_rows.append(f'<tr class="sub-{gid}" style="display:none;">{sub_header}{sub_filler}{sub_cells}</tr>')
+                    if is_leaf_level:
+                        # Leaf row: show actual data
+                        row_data = grp_items[0][1]
+                        cells = "".join(
+                            f'<td class="num" style="{dyn_cell_bg(row_data[c])}">{fmt_dyn(row_data[c])}</td>'
+                            for c in dyn_pivot.columns
+                        )
+                        body_rows.append(
+                            f'<tr class="{child_class}" data-nid="{nid}">'
+                            f'<td class="lbl" style="padding-left:{indent + 12}px; color:#444;">{display}</td>'
+                            f'{cells}</tr>'
+                        )
+                        tree_row_count += 1
+                    else:
+                        # Group row: show subtotal with toggle
+                        subtotals = {}
+                        for c in dyn_pivot.columns:
+                            subtotals[c] = sum(item[1][c] for item in grp_items)
 
-                # Detail rows
-                prev_groups = [None] * n_levels
-                for ri, (row_i, idx_tuple, row_data) in enumerate(grp_rows):
-                    cells_html = "".join(
-                        f'<td class="num" style="{dyn_cell_bg(row_data[c])}">{fmt_dyn(row_data[c])}</td>'
-                        for c in dyn_pivot.columns
-                    )
+                        cells = "".join(
+                            f'<td class="num" style="font-weight:600; background:#{"e8ecf0" if level == 0 else "f0f4f8"};">'
+                            f'{fmt_dyn(subtotals[c])}</td>'
+                            for c in dyn_pivot.columns
+                        )
 
-                    header_cells = ""
-                    # First level handled by rowspan above
-                    if ri == 0:
-                        header_cells += first_cell
+                        colors = ["#0f4c81", "#37474F", "#546E7A"]
+                        bgs = ["#e8ecf0", "#f0f4f8", "#f5f7fa"]
+                        color = colors[min(level, len(colors) - 1)]
+                        bg = bgs[min(level, len(bgs) - 1)]
+                        weight = 700 if level == 0 else 600
 
-                    # Remaining levels with rowspan
-                    for lvl in range(1, n_levels):
-                        current_val = idx_tuple[lvl]
-                        if current_val != prev_groups[lvl]:
-                            span = 1
-                            for future_ri in range(ri + 1, len(grp_rows)):
-                                future_idx = grp_rows[future_ri][1]
-                                if all(future_idx[l] == idx_tuple[l] for l in range(1, lvl + 1)):
-                                    span += 1
-                                else:
-                                    break
-                            display = str(current_val)
-                            display = display[:40] + "…" if len(display) > 40 else display
-                            style = 'color:#444; padding-left:12px;'
-                            header_cells += f'<td class="lbl" rowspan="{span}" style="{style}">{display}</td>'
-                            prev_groups[lvl] = current_val
-                            for deeper in range(lvl + 1, n_levels):
-                                prev_groups[deeper] = None
+                        body_rows.append(
+                            f'<tr class="grp-row {child_class}" data-nid="{nid}">'
+                            f'<td class="lbl grp-toggle" data-nid="{nid}" '
+                            f'style="padding-left:{indent + 8}px; font-weight:{weight}; '
+                            f'background:{bg}; color:{color}; cursor:pointer; user-select:none; '
+                            f'border-right:2px solid #cfd8dc;">'
+                            f'<span class="icon-{nid}">▼</span> {display}</td>'
+                            f'{cells}</tr>'
+                        )
+                        tree_row_count += 1
 
-                    body_rows.append(f'<tr class="det-{gid}">{header_cells}{cells_html}</tr>')
+                        # Recurse into children
+                        build_tree(grp_items, level + 1, nid, parent_path + [grp_key])
+
+            indices_data = list(zip(
+                [idx if isinstance(idx, tuple) else (idx,) for idx in all_indices],
+                all_data
+            ))
+            build_tree(indices_data, 0, None, [])
+
         else:
             # Single-level index — no collapsing
             for idx, row_data in dyn_pivot.iterrows():
@@ -685,6 +681,7 @@ with pivot_tab1:
                     for c in dyn_pivot.columns
                 )
                 body_rows.append(f'<tr><td class="lbl">{display}</td>{cells}</tr>')
+                tree_row_count += 1
 
         # Grand total row
         if not isinstance(dyn_pivot.columns, pd.MultiIndex):
@@ -692,18 +689,38 @@ with pivot_tab1:
             total_cells = "".join(
                 f'<td class="total-num">{fmt_dyn(col_totals[c])}</td>' for c in dyn_pivot.columns
             )
-            body_rows.append(f'<tr class="year-row"><td class="lbl" colspan="{n_levels}">📊 Total</td>{total_cells}</tr>')
+            body_rows.append(f'<tr class="year-row"><td class="lbl" style="padding-left:8px;">📊 Total</td>{total_cells}</tr>')
+            tree_row_count += 1
 
         collapse_js = """
         <script>
         document.querySelectorAll('.grp-toggle').forEach(el => {
             el.addEventListener('click', function() {
-                const gid = this.getAttribute('data-gid');
-                const detRows = document.querySelectorAll('.det-' + gid);
-                const subRow = document.querySelector('.sub-' + gid);
-                const isVisible = detRows[0] && detRows[0].style.display !== 'none';
-                detRows.forEach(r => r.style.display = isVisible ? 'none' : '');
-                if (subRow) subRow.style.display = isVisible ? '' : 'none';
+                const nid = this.getAttribute('data-nid');
+                const children = document.querySelectorAll('.child-' + nid);
+                if (children.length === 0) return;
+                const isExpanded = children[0].style.display !== 'none';
+
+                // Toggle direct children
+                children.forEach(r => r.style.display = isExpanded ? 'none' : '');
+
+                // If collapsing, also hide all nested children recursively
+                if (isExpanded) {
+                    children.forEach(r => {
+                        const childNid = r.getAttribute('data-nid');
+                        if (childNid) {
+                            const nested = document.querySelectorAll('.child-' + childNid);
+                            nested.forEach(n => n.style.display = 'none');
+                            // Update nested icons to collapsed
+                            document.querySelectorAll('.icon-' + childNid).forEach(ic => ic.textContent = '▶');
+                        }
+                    });
+                }
+
+                // Update icon
+                document.querySelectorAll('.icon-' + nid).forEach(ic => {
+                    ic.textContent = isExpanded ? '▶' : '▼';
+                });
             });
         });
         </script>
@@ -719,23 +736,20 @@ with pivot_tab1:
             padding: 6px 8px; text-align: center; white-space: nowrap;
             position: sticky; top: 0; z-index: 2;
         }
-        .pivot-wrap th.lbl { text-align: left; min-width: 140px; }
+        .pivot-wrap th.lbl { text-align: left; min-width: 200px; }
         .pivot-wrap td { padding: 4px 8px; border-bottom: 1px solid #e8ecf0; white-space: nowrap; }
-        .pivot-wrap td.lbl { text-align: left; color: #444; padding-left: 12px; font-size: 12px; }
+        .pivot-wrap td.lbl { text-align: left; font-size: 12px; }
         .pivot-wrap td.num { text-align: right; color: #1a1a2e; font-size: 12px; }
         .pivot-wrap td.total-num { text-align: right; font-weight: 700; color: #0f4c81; font-size: 12px; }
         .year-row td { background: #1a5276 !important; color: white !important;
                        font-weight: 700; font-size: 13px; }
-        .year-row td.lbl { padding-left: 8px; letter-spacing: 0.5px; }
-        .pivot-wrap tr:not(.year-row):hover td { background: #e8f4fd !important; }
-        .grp-toggle { cursor: pointer; user-select: none; }
-        .grp-toggle:hover { background: #d0dce5 !important; }
+        .pivot-wrap tr:not(.year-row):not(.grp-row):hover td { background: #e8f4fd !important; }
+        .grp-toggle:hover { filter: brightness(0.95); }
         </style>
         """
 
         table_body = "".join(body_rows)
-        row_count = len(dyn_pivot)
-        estimated_height = min(max(row_count * 28 + 80, 200), 800)
+        estimated_height = min(max(tree_row_count * 28 + 80, 200), 800)
 
         dyn_html = f"""
         {pivot_css}
@@ -749,7 +763,7 @@ with pivot_tab1:
         """
 
         val_label = "Valor NF (R$)" if sel_value == "R$" else "Quantidade"
-        st.markdown(f"📊 **{len(dyn_pivot):,}** linhas  ·  Soma de {val_label}  ·  💡 _Clique no cabeçalho do grupo para colapsar/expandir_")
+        st.markdown(f"📊 **{len(dyn_pivot):,}** linhas  ·  Soma de {val_label}  ·  💡 _Clique nos grupos para colapsar/expandir_")
         import streamlit.components.v1 as components
         components.html(dyn_html, height=estimated_height, scrolling=True)
 
