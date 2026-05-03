@@ -633,25 +633,64 @@ with pivot_tab2:
                 r, g, b = int(230 - 70 * ratio), int(235 - 40 * ratio), 255
             return f"background-color:rgb({r},{g},{b});"
 
-        # Render HTML table
+        # Render HTML table with merged row headers
         col_labels = [str(c) for c in dyn_pivot.columns]
         header_html = "".join(f"<th>{c}</th>" for c in col_labels)
-        row_label_header = " / ".join(sel_rows) if sel_rows else "—"
+        row_level_names = sel_rows if len(sel_rows) > 1 else [sel_rows[0]] if sel_rows else ["—"]
+        row_header_html = "".join(f'<th class="lbl">{n}</th>' for n in row_level_names)
 
         body_rows = []
-        for idx, row_data in dyn_pivot.iterrows():
-            # Build row label
-            if isinstance(idx, tuple):
-                label = " › ".join(str(i) for i in idx)
-            else:
-                label = str(idx)
-            display = label[:60] + "…" if len(label) > 60 else label
+        n_levels = len(row_level_names)
 
-            cells = "".join(
-                f'<td class="num" style="{dyn_cell_bg(row_data[c])}">{fmt_dyn(row_data[c])}</td>'
-                for c in dyn_pivot.columns
-            )
-            body_rows.append(f'<tr><td class="lbl">{display}</td>{cells}</tr>')
+        if n_levels >= 2 and isinstance(dyn_pivot.index, pd.MultiIndex):
+            # Group by first level for rowspan merging
+            prev_groups = [None] * n_levels
+            # Pre-count spans for each level
+            all_indices = list(dyn_pivot.index)
+
+            for row_i, (idx, row_data) in enumerate(dyn_pivot.iterrows()):
+                idx_tuple = idx if isinstance(idx, tuple) else (idx,)
+                cells_html = "".join(
+                    f'<td class="num" style="{dyn_cell_bg(row_data[c])}">{fmt_dyn(row_data[c])}</td>'
+                    for c in dyn_pivot.columns
+                )
+
+                # Build row header cells with rowspan for each level
+                header_cells = ""
+                for lvl in range(n_levels):
+                    current_val = idx_tuple[lvl]
+                    # Check if this level value changed from previous row
+                    if current_val != prev_groups[lvl]:
+                        # Count how many consecutive rows share this value (and all parent levels)
+                        span = 1
+                        for future_i in range(row_i + 1, len(all_indices)):
+                            future_idx = all_indices[future_i] if isinstance(all_indices[future_i], tuple) else (all_indices[future_i],)
+                            # All levels up to and including this one must match
+                            if all(future_idx[l] == idx_tuple[l] for l in range(lvl + 1)):
+                                span += 1
+                            else:
+                                break
+
+                        display = str(current_val)
+                        display = display[:40] + "…" if len(display) > 40 else display
+                        style = 'font-weight:700; background:#e8ecf0; color:#0f4c81; border-right:2px solid #cfd8dc;' if lvl == 0 else 'color:#444; padding-left:12px;'
+                        header_cells += f'<td class="lbl" rowspan="{span}" style="{style}">{display}</td>'
+                        prev_groups[lvl] = current_val
+                        # Reset deeper levels when a parent changes
+                        for deeper in range(lvl + 1, n_levels):
+                            prev_groups[deeper] = None
+
+                body_rows.append(f'<tr>{header_cells}{cells_html}</tr>')
+        else:
+            # Single-level index — no merging needed
+            for idx, row_data in dyn_pivot.iterrows():
+                label = str(idx)
+                display = label[:60] + "…" if len(label) > 60 else label
+                cells = "".join(
+                    f'<td class="num" style="{dyn_cell_bg(row_data[c])}">{fmt_dyn(row_data[c])}</td>'
+                    for c in dyn_pivot.columns
+                )
+                body_rows.append(f'<tr><td class="lbl">{display}</td>{cells}</tr>')
 
         # Column totals row
         if not isinstance(dyn_pivot.columns, pd.MultiIndex):
@@ -659,12 +698,12 @@ with pivot_tab2:
             total_cells = "".join(
                 f'<td class="total-num">{fmt_dyn(col_totals[c])}</td>' for c in dyn_pivot.columns
             )
-            body_rows.append(f'<tr class="year-row"><td class="lbl">📊 Total</td>{total_cells}</tr>')
+            body_rows.append(f'<tr class="year-row"><td class="lbl" colspan="{n_levels}">📊 Total</td>{total_cells}</tr>')
 
         dyn_html = f"""
         <div class="pivot-wrap">
         <table>
-          <thead><tr><th class="lbl">{row_label_header}</th>{header_html}</tr></thead>
+          <thead><tr>{row_header_html}{header_html}</tr></thead>
           <tbody>{"".join(body_rows)}</tbody>
         </table>
         </div>
