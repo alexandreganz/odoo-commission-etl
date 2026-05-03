@@ -231,27 +231,55 @@ if fdf.empty:
     st.warning("Nenhum dado corresponde aos filtros selecionados.")
     st.stop()
 
+# ── Cross-filter state (click on chart bar to filter everything) ──────────────
+
+if "chart_filter_field" not in st.session_state:
+    st.session_state["chart_filter_field"] = None
+    st.session_state["chart_filter_value"] = None
+
+chart_fdf = fdf.copy()
+active_filter = None
+if st.session_state["chart_filter_field"] and st.session_state["chart_filter_value"]:
+    field = st.session_state["chart_filter_field"]
+    value = st.session_state["chart_filter_value"]
+    if field in fdf.columns:
+        chart_fdf = fdf[fdf[field] == value].copy()
+        active_filter = f"{value}"
+    else:
+        st.session_state["chart_filter_field"] = None
+        st.session_state["chart_filter_value"] = None
+
+if active_filter:
+    fcol1, fcol2 = st.columns([6, 1])
+    with fcol1:
+        st.info(f"🔍 Filtro ativo: **{active_filter}** — todos os gráficos, cards e tabelas refletem este recorte")
+    with fcol2:
+        if st.button("✖ Limpar filtro"):
+            st.session_state["chart_filter_field"] = None
+            st.session_state["chart_filter_value"] = None
+            st.rerun()
+
 # ── KPI Cards ─────────────────────────────────────────────────────────────────
 
 k1, k2, k3, k4, k5 = st.columns(5)
-total_revenue = fdf["vr_nf"].sum()
+total_revenue = chart_fdf["vr_nf"].sum()
 with k1:
     st.metric("Faturamento Total", f"R$ {total_revenue:,.0f}")
 with k2:
-    st.metric("Notas Fiscais", f"{fdf['numero'].nunique():,}")
+    st.metric("Notas Fiscais", f"{chart_fdf['numero'].nunique():,}")
 with k3:
-    st.metric("Produtos Ativos", f"{fdf['produto_nome'].nunique():,}")
+    st.metric("Produtos Ativos", f"{chart_fdf['produto_nome'].nunique():,}")
 with k4:
-    st.metric("Vendedores", f"{fdf['vendedor'].nunique():,}")
+    st.metric("Vendedores", f"{chart_fdf['vendedor'].nunique():,}")
 with k5:
-    st.metric("Clientes", f"{fdf['cliente'].nunique():,}")
+    st.metric("Clientes", f"{chart_fdf['cliente'].nunique():,}")
 
 st.markdown("")
 
-# ── Chart 1 — Time Series Line ────────────────────────────────────────────────
+# ── Chart 1 — Time Series Bar ─────────────────────────────────────────────────
 
 ts = (
-    fdf.groupby(["date", "tipo_norm"])["vr_nf"]
+    chart_fdf.groupby(["date", "tipo_norm"])["vr_nf"]
     .sum()
     .reset_index()
     .sort_values("date")
@@ -280,29 +308,6 @@ fig_ts.update_traces(hovertemplate="R$ %{y:,.0f}")
 st.plotly_chart(fig_ts, use_container_width=True)
 
 # ── Charts 2, 3 & 4 — Horizontal Bars side by side (cross-filter on click) ────
-
-# Initialize cross-filter state
-if "chart_filter_field" not in st.session_state:
-    st.session_state["chart_filter_field"] = None
-    st.session_state["chart_filter_value"] = None
-
-chart_fdf = fdf.copy()
-active_filter = None
-if st.session_state["chart_filter_field"] and st.session_state["chart_filter_value"]:
-    field = st.session_state["chart_filter_field"]
-    value = st.session_state["chart_filter_value"]
-    chart_fdf = fdf[fdf[field] == value].copy()
-    active_filter = f"{value}"
-
-if active_filter:
-    fcol1, fcol2 = st.columns([6, 1])
-    with fcol1:
-        st.info(f"🔍 Filtro ativo: **{active_filter}** — os gráficos abaixo mostram apenas este recorte")
-    with fcol2:
-        if st.button("✖ Limpar filtro"):
-            st.session_state["chart_filter_field"] = None
-            st.session_state["chart_filter_value"] = None
-            st.rerun()
 
 col_left, col_mid, col_right = st.columns(3)
 
@@ -479,14 +484,14 @@ with pivot_tab1:
     # Row 2: Search filters
     r2c1, r2c2 = st.columns(2)
     with r2c1:
-        all_prods = sorted(fdf["produto_nome"].dropna().unique().tolist())
+        all_prods = sorted(chart_fdf["produto_nome"].dropna().unique().tolist())
         sel_prods = st.multiselect("🔍 Filtrar Produto", all_prods, default=[], placeholder="Buscar produto...", key="dyn_prod")
     with r2c2:
-        all_clis = sorted(fdf["cliente"].dropna().unique().tolist())
+        all_clis = sorted(chart_fdf["cliente"].dropna().unique().tolist())
         sel_clis = st.multiselect("🔍 Filtrar Cliente", all_clis, default=[], placeholder="Buscar cliente...", key="dyn_cli")
 
     # Apply product/client search filters
-    dyn_df = fdf.copy()
+    dyn_df = chart_fdf.copy()
     if sel_prods:
         dyn_df = dyn_df[dyn_df["produto_nome"].isin(sel_prods)]
     if sel_clis:
@@ -671,7 +676,7 @@ with pivot_tab2:
     row_col = row_col_map[pivot_dim]
 
     grp = (
-        fdf.groupby(["ano", row_col, "trimestre"])["vr_nf"]
+        chart_fdf.groupby(["ano", row_col, "trimestre"])["vr_nf"]
         .sum()
         .reset_index()
     )
