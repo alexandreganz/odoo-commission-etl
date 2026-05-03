@@ -401,6 +401,7 @@ with pivot_tab1:
         "Trimestre": "trimestre",
         "Mês": "mes_nome",
         "Operação": "tipo_norm",
+        "Empresa": "empresa",
         "Vendedor": "vendedor",
         "Família/Grupo": "familia_grupo",
         "Cliente": "cliente",
@@ -415,22 +416,25 @@ with pivot_tab1:
     if "dyn_value" not in st.session_state or st.session_state["dyn_value"] not in ("R$", "Qtd"):
         st.session_state["dyn_value"] = "R$"
 
-    # Compact config bar
-    c1, c2, c3, c4, c5 = st.columns([2, 2, 1.2, 2, 2])
-    with c1:
-        sel_rows = st.multiselect("Linhas", list(FIELD_OPTIONS.keys()), default=st.session_state["dyn_rows"], key="dyn_rows")
-    with c2:
+    # Row 1: Structure
+    r1c1, r1c2, r1c3 = st.columns([3, 3, 1])
+    with r1c1:
+        sel_rows = st.multiselect("📊 Linhas", list(FIELD_OPTIONS.keys()), default=st.session_state["dyn_rows"], key="dyn_rows")
+    with r1c2:
         available_cols = [f for f in FIELD_OPTIONS if f not in sel_rows]
         default_cols = [c for c in st.session_state["dyn_cols"] if c in available_cols]
-        sel_cols = st.multiselect("Colunas", available_cols, default=default_cols, key="dyn_cols")
-    with c3:
-        sel_value = st.radio("Valor", ["R$", "Qtd"], horizontal=True, key="dyn_value", label_visibility="collapsed")
-    with c4:
+        sel_cols = st.multiselect("📊 Colunas", available_cols, default=default_cols, key="dyn_cols")
+    with r1c3:
+        sel_value = st.radio("Valor", ["R$", "Qtd"], horizontal=True, key="dyn_value")
+
+    # Row 2: Search filters
+    r2c1, r2c2 = st.columns(2)
+    with r2c1:
         all_prods = sorted(fdf["produto_nome"].dropna().unique().tolist())
-        sel_prods = st.multiselect("Produto", all_prods, default=[], placeholder="🔍 Produto...", key="dyn_prod", label_visibility="collapsed")
-    with c5:
+        sel_prods = st.multiselect("🔍 Filtrar Produto", all_prods, default=[], placeholder="Buscar produto...", key="dyn_prod")
+    with r2c2:
         all_clis = sorted(fdf["cliente"].dropna().unique().tolist())
-        sel_clis = st.multiselect("Cliente", all_clis, default=[], placeholder="🔍 Cliente...", key="dyn_cli", label_visibility="collapsed")
+        sel_clis = st.multiselect("🔍 Filtrar Cliente", all_clis, default=[], placeholder="Buscar cliente...", key="dyn_cli")
 
     # Apply product/client search filters
     dyn_df = fdf.copy()
