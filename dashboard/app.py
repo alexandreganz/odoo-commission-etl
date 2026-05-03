@@ -122,6 +122,10 @@ def load_data() -> pd.DataFrame:
     df["tipo_norm"] = df["tipo_norm"].fillna("").astype(str)
     df["produto_nome"] = df["produto_nome"].fillna("").astype(str)
     df["cliente"] = df["cliente"].fillna("").astype(str)
+    if "margem_pct" in df.columns:
+        df["margem_pct"] = pd.to_numeric(df["margem_pct"], errors="coerce")
+    else:
+        df["margem_pct"] = float("nan")
     df["mes_nome"] = df["mes"].map(MONTH_MAP)
     df["trimestre"] = df["mes"].map(lambda m: f"Q{int((m - 1) // 3 + 1)}" if pd.notna(m) else "")
     df = df.dropna(subset=["ano"])
