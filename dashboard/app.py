@@ -123,6 +123,7 @@ def load_data() -> pd.DataFrame:
     df["produto_nome"] = df["produto_nome"].fillna("").astype(str)
     df["cliente"] = df["cliente"].fillna("").astype(str)
     df["mes_nome"] = df["mes"].map(MONTH_MAP)
+    df["trimestre"] = df["mes"].map(lambda m: f"Q{int((m - 1) // 3 + 1)}" if pd.notna(m) else "")
     df = df.dropna(subset=["ano"])
     df["ano"] = df["ano"].astype(int)
     # Date column for time series
@@ -501,6 +502,7 @@ with pivot_tab2:
 
     FIELD_OPTIONS = {
         "Ano": "ano",
+        "Trimestre": "trimestre",
         "Mês": "mes_nome",
         "Operação": "tipo_norm",
         "Vendedor": "vendedor",
