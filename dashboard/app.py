@@ -87,21 +87,21 @@ st.markdown("""
     .dash-header h1 { margin: 0; font-size: 26px; font-weight: 700; }
     .dash-header p  { margin: 4px 0 0; opacity: 0.85; font-size: 14px; }
     /* Pivot table */
-    .pivot-wrap { overflow-x: auto; font-family: 'Segoe UI', sans-serif; font-size: 13px; }
+    .pivot-wrap { overflow-x: auto; font-family: 'Segoe UI', sans-serif; font-size: 12px; }
     .pivot-wrap table { border-collapse: collapse; width: 100%; }
     .pivot-wrap th {
         background: #0f4c81; color: white; font-weight: 600;
-        padding: 8px 12px; text-align: center; white-space: nowrap;
+        padding: 6px 8px; text-align: center; white-space: nowrap;
         position: sticky; top: 0; z-index: 2;
     }
-    .pivot-wrap th.lbl { text-align: left; min-width: 200px; }
-    .pivot-wrap td { padding: 5px 10px; border-bottom: 1px solid #e8ecf0; white-space: nowrap; }
-    .pivot-wrap td.lbl { text-align: left; color: #444; padding-left: 24px; }
-    .pivot-wrap td.num { text-align: right; color: #1a1a2e; }
-    .pivot-wrap td.total-num { text-align: right; font-weight: 700; color: #0f4c81; }
+    .pivot-wrap th.lbl { text-align: left; min-width: 140px; }
+    .pivot-wrap td { padding: 4px 8px; border-bottom: 1px solid #e8ecf0; white-space: nowrap; }
+    .pivot-wrap td.lbl { text-align: left; color: #444; padding-left: 12px; font-size: 12px; }
+    .pivot-wrap td.num { text-align: right; color: #1a1a2e; font-size: 12px; }
+    .pivot-wrap td.total-num { text-align: right; font-weight: 700; color: #0f4c81; font-size: 12px; }
     .year-row td { background: #1a5276 !important; color: white !important;
-                   font-weight: 700; font-size: 14px; }
-    .year-row td.lbl { padding-left: 10px; letter-spacing: 0.5px; }
+                   font-weight: 700; font-size: 13px; }
+    .year-row td.lbl { padding-left: 8px; letter-spacing: 0.5px; }
     .pivot-wrap tr:not(.year-row):hover td { background: #e8f4fd !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -396,8 +396,6 @@ st.markdown(
 pivot_tab1, pivot_tab2 = st.tabs(["🔧 Pivô Interativo", "📊 Tabela Rápida"])
 
 with pivot_tab1:
-    st.caption("Configure linhas, colunas, valores e filtros. A configuração é preservada ao alterar filtros laterais.")
-
     FIELD_OPTIONS = {
         "Ano": "ano",
         "Trimestre": "trimestre",
@@ -417,33 +415,22 @@ with pivot_tab1:
     if "dyn_value" not in st.session_state:
         st.session_state["dyn_value"] = "Valor NF (R$)"
 
-    cfg1, cfg2 = st.columns(2)
-    with cfg1:
-        sel_rows = st.multiselect(
-            "📊 Linhas",
-            list(FIELD_OPTIONS.keys()),
-            default=st.session_state["dyn_rows"],
-            key="dyn_rows",
-        )
-    with cfg2:
+    # Compact config bar
+    c1, c2, c3, c4, c5 = st.columns([2, 2, 1.2, 2, 2])
+    with c1:
+        sel_rows = st.multiselect("Linhas", list(FIELD_OPTIONS.keys()), default=st.session_state["dyn_rows"], key="dyn_rows")
+    with c2:
         available_cols = [f for f in FIELD_OPTIONS if f not in sel_rows]
         default_cols = [c for c in st.session_state["dyn_cols"] if c in available_cols]
-        sel_cols = st.multiselect(
-            "📊 Colunas",
-            available_cols,
-            default=default_cols,
-            key="dyn_cols",
-        )
-
-    cfg3, cfg5, cfg6 = st.columns(3)
-    with cfg3:
-        sel_value = st.radio("Valor", ["Valor NF (R$)", "Quantidade"], horizontal=True, key="dyn_value")
-    with cfg5:
+        sel_cols = st.multiselect("Colunas", available_cols, default=default_cols, key="dyn_cols")
+    with c3:
+        sel_value = st.radio("Valor", ["R$", "Qtd"], horizontal=True, key="dyn_value", label_visibility="collapsed")
+    with c4:
         all_prods = sorted(fdf["produto_nome"].dropna().unique().tolist())
-        sel_prods = st.multiselect("🔍 Produto", all_prods, default=[], placeholder="Buscar produto...", key="dyn_prod")
-    with cfg6:
+        sel_prods = st.multiselect("Produto", all_prods, default=[], placeholder="🔍 Produto...", key="dyn_prod", label_visibility="collapsed")
+    with c5:
         all_clis = sorted(fdf["cliente"].dropna().unique().tolist())
-        sel_clis = st.multiselect("🔍 Cliente", all_clis, default=[], placeholder="Buscar cliente...", key="dyn_cli")
+        sel_clis = st.multiselect("Cliente", all_clis, default=[], placeholder="🔍 Cliente...", key="dyn_cli", label_visibility="collapsed")
 
     # Apply product/client search filters
     dyn_df = fdf.copy()
@@ -452,7 +439,7 @@ with pivot_tab1:
     if sel_clis:
         dyn_df = dyn_df[dyn_df["cliente"].isin(sel_clis)]
 
-    value_col = "vr_nf" if sel_value == "Valor NF (R$)" else "quantidade"
+    value_col = "vr_nf" if sel_value == "R$" else "quantidade"
     agg_func = "sum"
 
     if not sel_rows:
@@ -607,7 +594,8 @@ with pivot_tab1:
         </div>
         """
 
-        st.markdown(f"📊 **{len(dyn_pivot):,}** linhas  ·  Soma de {sel_value}")
+        val_label = "Valor NF (R$)" if sel_value == "R$" else "Quantidade"
+        st.markdown(f"📊 **{len(dyn_pivot):,}** linhas  ·  Soma de {val_label}")
         st.markdown(dyn_html, unsafe_allow_html=True)
 
         # Download
