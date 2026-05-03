@@ -291,27 +291,64 @@ ts = (
     .reset_index()
     .sort_values("date")
 )
-fig_ts = px.bar(
-    ts,
-    x="date",
-    y="vr_nf",
-    color="tipo_norm",
-    labels={"date": "", "vr_nf": "R$", "tipo_norm": "Operação"},
-    color_discrete_map={"venda": COLORS["primary"], "devolucao": COLORS["negative"], "os": COLORS["neutral"], "remessa": "#FFA726"},
-)
+
+# Also compute a cumulative total line
+ts_total = chart_fdf.groupby("date")["vr_nf"].sum().reset_index().sort_values("date")
+ts_total["acumulado"] = ts_total["vr_nf"].cumsum()
+
+import plotly.graph_objects as go
+fig_ts = go.Figure()
+
+# Stacked bars by tipo_norm
+tipo_color = {"venda": "#2196F3", "devolucao": "#f44336", "os": "#78909C", "remessa": "#FFA726"}
+tipo_label = {"venda": "Venda", "devolucao": "Devolução", "os": "OS", "remessa": "Remessa"}
+for tipo in ["venda", "os", "remessa", "devolucao"]:
+    tdf = ts[ts["tipo_norm"] == tipo]
+    if tdf.empty:
+        continue
+    fig_ts.add_trace(go.Bar(
+        x=tdf["date"], y=tdf["vr_nf"],
+        name=tipo_label.get(tipo, tipo),
+        marker_color=tipo_color.get(tipo, "#999"),
+        hovertemplate="<b>%{x|%b %Y}</b><br>R$ %{y:,.0f}<extra>" + tipo_label.get(tipo, tipo) + "</extra>",
+    ))
+
+# Cumulative line on secondary axis
+fig_ts.add_trace(go.Scatter(
+    x=ts_total["date"], y=ts_total["acumulado"],
+    name="Acumulado",
+    mode="lines+markers",
+    line=dict(color="#0f4c81", width=2.5, dash="dot"),
+    marker=dict(size=4),
+    yaxis="y2",
+    hovertemplate="<b>%{x|%b %Y}</b><br>Acumulado: R$ %{y:,.0f}<extra></extra>",
+))
+
 fig_ts.update_layout(
     title=dict(text="Faturamento Mensal", font=dict(size=18, color=COLORS["primary"])),
     plot_bgcolor="white",
     paper_bgcolor="white",
     hovermode="x unified",
-    legend=dict(orientation="h", y=-0.15, x=0.5, xanchor="center"),
-    margin=dict(l=40, r=20, t=50, b=40),
-    yaxis=dict(gridcolor="#eee", tickformat=",.0f"),
-    xaxis=dict(gridcolor="#eee"),
-    height=380,
-    barmode="group",
+    legend=dict(orientation="h", y=-0.18, x=0.5, xanchor="center",
+                bgcolor="rgba(255,255,255,0.8)", font=dict(size=11)),
+    margin=dict(l=50, r=50, t=50, b=50),
+    yaxis=dict(
+        title="Mensal (R$)", gridcolor="#eee", tickformat=",.0f",
+        zeroline=True, zerolinecolor="#ccc",
+    ),
+    yaxis2=dict(
+        title="Acumulado (R$)", overlaying="y", side="right",
+        tickformat=",.0f", showgrid=False,
+    ),
+    xaxis=dict(
+        gridcolor="#f0f0f0",
+        dtick="M1", tickformat="%b\n%Y",
+        tickangle=0,
+    ),
+    height=420,
+    barmode="stack",
+    bargap=0.15,
 )
-fig_ts.update_traces(hovertemplate="R$ %{y:,.0f}")
 st.plotly_chart(fig_ts, use_container_width=True)
 
 # ── Charts 2, 3 & 4 — Horizontal Bars side by side (cross-filter on click) ────
