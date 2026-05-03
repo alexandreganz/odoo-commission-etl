@@ -249,7 +249,7 @@ def build_cigam_df(raw: pd.DataFrame, pre_map: dict, odoo_names: list,
         'vr_nf':                vti,
         'tipo_norm':            tipo_norm,
         'cliente':              raw['Empresa'].astype(str).fillna(''),
-        'margem_pct':           pd.to_numeric(raw['% Margem'], errors='coerce'),
+        'margem_pct':           pd.to_numeric(raw['% Margem'].astype(str).str.replace(',', '.', regex=False), errors='coerce'),
     })
 
 

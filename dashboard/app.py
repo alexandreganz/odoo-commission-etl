@@ -854,8 +854,8 @@ with pivot_tab2:
     row_col = row_col_map[pivot_dim]
 
     grp = (
-        chart_fdf.groupby(["ano", row_col, "trimestre"])["vr_nf"]
-        .sum()
+        chart_fdf.groupby(["ano", row_col, "trimestre"])
+        .agg(vr_nf=("vr_nf", "sum"), margem_pct=("margem_pct", "median"))
         .reset_index()
     )
 
@@ -870,9 +870,20 @@ with pivot_tab2:
     present_quarters = [q for q in quarter_order if q in pivot.columns]
     pivot = pivot[present_quarters]
     pivot["Total"] = pivot.sum(axis=1)
-    cols = present_quarters + ["Total"]
 
+    # Margem pivot (median per group)
+    margem_pivot = grp.pivot_table(
+        index=["ano", row_col],
+        columns="trimestre",
+        values="margem_pct",
+        aggfunc="median",
+    )
+    margem_pivot = margem_pivot.reindex(columns=present_quarters)
+    margem_pivot["Mediana"] = chart_fdf.groupby(["ano", row_col])["margem_pct"].median()
+
+    cols = present_quarters + ["Total"]
     year_totals = pivot.groupby(level="ano").sum()
+    year_margem = chart_fdf.groupby("ano")["margem_pct"].median()
     col_max = {c: max(pivot[c].max(), 1) for c in cols}
 
     def fmt(v):
@@ -881,6 +892,11 @@ with pivot_tab2:
         if v == int(v):
             return f"R$ {int(v):,}"
         return f"R$ {v:,.2f}"
+
+    def fmt_m(v):
+        if pd.isna(v):
+            return "—"
+        return f"{v:.1f}%"
 
     def cell_bg(val, col):
         if val == 0 or col_max[col] == 0:
@@ -895,6 +911,7 @@ with pivot_tab2:
     rows_html = []
     for yr in sorted(pivot.index.get_level_values("ano").unique()):
         yr_vals = year_totals.loc[yr]
+        yr_margem = year_margem.get(yr, float('nan'))
         yr_cells = "".join(
             f'<td class="num" style="color:white">{fmt(yr_vals[c])}</td>' for c in present_quarters
         )
@@ -902,7 +919,8 @@ with pivot_tab2:
             f'<tr class="year-row">'
             f'<td class="lbl">📅 {yr}</td>'
             f'{yr_cells}'
-            f'<td class="num" style="color:white">{fmt(yr_vals["Total"])}</td></tr>'
+            f'<td class="num" style="color:white">{fmt(yr_vals["Total"])}</td>'
+            f'<td class="num" style="color:white; text-align:center;">{fmt_m(yr_margem)}</td></tr>'
         )
 
         yr_df = pivot.loc[yr].sort_values("Total", ascending=False)
@@ -912,12 +930,18 @@ with pivot_tab2:
             q_cells = "".join(
                 f'<td class="num" style="{cell_bg(row[c], c)}">{fmt(row[c])}</td>' for c in present_quarters
             )
+            # Get margem for this row
+            try:
+                row_margem = margem_pivot.loc[(yr, label), "Mediana"]
+            except (KeyError, TypeError):
+                row_margem = float('nan')
             display = label[:40] + "…" if len(str(label)) > 40 else label
             rows_html.append(
                 f"<tr>"
                 f'<td class="lbl">{display}</td>'
                 f"{q_cells}"
-                f'<td class="total-num">{fmt(row["Total"])}</td></tr>'
+                f'<td class="total-num">{fmt(row["Total"])}</td>'
+                f'<td class="num" style="text-align:center; color:#546E7A;">{fmt_m(row_margem)}</td></tr>'
             )
 
     q_headers = "".join(f"<th>{q}</th>" for q in present_quarters)
@@ -928,6 +952,7 @@ with pivot_tab2:
         <th class="lbl">{pivot_dim}</th>
         {q_headers}
         <th>Total</th>
+        <th>% Margem</th>
       </tr></thead>
       <tbody>{"".join(rows_html)}</tbody>
     </table>
