@@ -413,7 +413,7 @@ with pivot_tab1:
     if "dyn_rows" not in st.session_state:
         st.session_state["dyn_rows"] = ["Ano", "Vendedor"]
     if "dyn_cols" not in st.session_state:
-        st.session_state["dyn_cols"] = ["Mês"]
+        st.session_state["dyn_cols"] = ["Trimestre"]
     if "dyn_value" not in st.session_state:
         st.session_state["dyn_value"] = "Valor NF (R$)"
 
