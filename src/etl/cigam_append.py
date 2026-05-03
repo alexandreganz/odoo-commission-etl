@@ -175,6 +175,7 @@ def build_odoo_df(items_path: Path) -> pd.DataFrame:
         'vr_nf':                pd.to_numeric(items['vr_nf'], errors='coerce').fillna(0),
         'tipo_norm':            items.get('tipo', '').fillna(''),
         'cliente':              items.get('cliente', '').fillna(''),
+        'margem_pct':           float('nan'),
     })
 
 
@@ -248,6 +249,7 @@ def build_cigam_df(raw: pd.DataFrame, pre_map: dict, odoo_names: list,
         'vr_nf':                vti,
         'tipo_norm':            tipo_norm,
         'cliente':              raw['Empresa'].astype(str).fillna(''),
+        'margem_pct':           pd.to_numeric(raw['% Margem'], errors='coerce'),
     })
 
 

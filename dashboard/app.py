@@ -510,7 +510,7 @@ with pivot_tab1:
         st.session_state["dyn_rows"] = ["Ano", "Vendedor"]
     if "dyn_cols" not in st.session_state:
         st.session_state["dyn_cols"] = ["Trimestre"]
-    if "dyn_value" not in st.session_state or st.session_state["dyn_value"] not in ("R$", "Qtd"):
+    if "dyn_value" not in st.session_state or st.session_state["dyn_value"] not in ("R$", "Qtd", "% Margem"):
         st.session_state["dyn_value"] = "R$"
 
     # Row 1: Structure
@@ -522,7 +522,7 @@ with pivot_tab1:
         default_cols = [c for c in st.session_state["dyn_cols"] if c in available_cols]
         sel_cols = st.multiselect("📊 Colunas", available_cols, default=default_cols, key="dyn_cols")
     with r1c3:
-        sel_value = st.radio("Valor", ["R$", "Qtd"], horizontal=True, key="dyn_value")
+        sel_value = st.radio("Valor", ["R$", "Qtd", "% Margem"], horizontal=True, key="dyn_value")
 
     # Row 2: Search filters
     r2c1, r2c2 = st.columns(2)
@@ -540,8 +540,14 @@ with pivot_tab1:
     if sel_clis:
         dyn_df = dyn_df[dyn_df["cliente"].isin(sel_clis)]
 
-    value_col = "vr_nf" if sel_value == "R$" else "quantidade"
-    agg_func = "sum"
+    if sel_value == "% Margem":
+        value_col = "margem_pct"
+        agg_func = "median"
+        # Filter to rows that have margem data (CIGAM only)
+        dyn_df = dyn_df[dyn_df["margem_pct"].notna()].copy()
+    else:
+        value_col = "vr_nf" if sel_value == "R$" else "quantidade"
+        agg_func = "sum"
 
     if not sel_rows:
         st.warning("Selecione pelo menos um campo para as linhas.")
@@ -556,12 +562,13 @@ with pivot_tab1:
             grp_result = dyn_df.groupby(grp_fields, dropna=False)[value_col].agg(agg_func).reset_index()
 
             # Pivot: rows × first col_field (only support one column dim for clean table)
+            pivot_agg = "median" if sel_value == "% Margem" else "sum"
             if len(col_fields) == 1:
                 dyn_pivot = grp_result.pivot_table(
                     index=row_fields,
                     columns=col_fields[0],
                     values=value_col,
-                    aggfunc="sum",
+                    aggfunc=pivot_agg,
                     fill_value=0,
                 )
             else:
@@ -570,7 +577,7 @@ with pivot_tab1:
                     index=row_fields,
                     columns=col_fields,
                     values=value_col,
-                    aggfunc="sum",
+                    aggfunc=pivot_agg,
                     fill_value=0,
                 )
         else:
@@ -585,18 +592,23 @@ with pivot_tab1:
             other = [c for c in dyn_pivot.columns if c not in MONTH_ORDER]
             dyn_pivot = dyn_pivot[ordered + other]
 
-        # Add total column
+        # Add total column (median for margem, sum for others)
         if isinstance(dyn_pivot.columns, pd.MultiIndex):
             pass  # skip total for multi-level columns
+        elif sel_value == "% Margem":
+            dyn_pivot["Mediana"] = dyn_pivot.median(axis=1)
         else:
             dyn_pivot["Total"] = dyn_pivot.sum(axis=1)
 
         # Format values
         is_currency = (value_col == "vr_nf")
+        is_margem = (value_col == "margem_pct")
 
         def fmt_dyn(v):
             if v == 0:
                 return "—"
+            if is_margem:
+                return f"{v:.1f}%"
             if is_currency:
                 if v == int(v):
                     return f"R$ {int(v):,}"
@@ -679,7 +691,13 @@ with pivot_tab1:
                         # Group row: show subtotal with toggle
                         subtotals = {}
                         for c in dyn_pivot.columns:
-                            subtotals[c] = sum(item[1][c] for item in grp_items)
+                            vals = [item[1][c] for item in grp_items]
+                            if is_margem:
+                                import statistics
+                                non_zero = [v for v in vals if v != 0]
+                                subtotals[c] = statistics.median(non_zero) if non_zero else 0
+                            else:
+                                subtotals[c] = sum(vals)
 
                         cells = "".join(
                             f'<td class="num" style="font-weight:600; background:#{"e8ecf0" if level == 0 else "f0f4f8"};">'
@@ -727,11 +745,16 @@ with pivot_tab1:
 
         # Grand total row
         if not isinstance(dyn_pivot.columns, pd.MultiIndex):
-            col_totals = dyn_pivot.sum()
+            if is_margem:
+                col_totals = dyn_pivot.median()
+                total_label = "📊 Mediana Geral"
+            else:
+                col_totals = dyn_pivot.sum()
+                total_label = "📊 Total"
             total_cells = "".join(
                 f'<td class="total-num">{fmt_dyn(col_totals[c])}</td>' for c in dyn_pivot.columns
             )
-            body_rows.append(f'<tr class="year-row"><td class="lbl" style="padding-left:8px;">📊 Total</td>{total_cells}</tr>')
+            body_rows.append(f'<tr class="year-row"><td class="lbl" style="padding-left:8px;">{total_label}</td>{total_cells}</tr>')
             tree_row_count[0] += 1
 
         collapse_js = """
@@ -804,8 +827,10 @@ with pivot_tab1:
         {collapse_js}
         """
 
-        val_label = "Valor NF (R$)" if sel_value == "R$" else "Quantidade"
-        st.markdown(f"📊 **{len(dyn_pivot):,}** linhas  ·  Soma de {val_label}  ·  💡 _Clique nos grupos para colapsar/expandir_")
+        val_labels = {"R$": "Valor NF (R$)", "Qtd": "Quantidade", "% Margem": "% Margem (mediana)"}
+        val_label = val_labels.get(sel_value, sel_value)
+        agg_label = "Mediana" if sel_value == "% Margem" else "Soma"
+        st.markdown(f"📊 **{len(dyn_pivot):,}** linhas  ·  {agg_label} de {val_label}  ·  💡 _Clique nos grupos para colapsar/expandir_")
         import streamlit.components.v1 as components
         components.html(dyn_html, height=estimated_height, scrolling=True)
 
