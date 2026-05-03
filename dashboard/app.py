@@ -541,16 +541,18 @@ with pivot_tab2:
     with cfg3:
         sel_value = st.radio("Valor", ["Valor NF (R$)", "Quantidade"], horizontal=True, key="dyn_value")
     with cfg5:
-        search_prod = st.text_input("🔍 Produto", placeholder="Buscar produto...")
+        all_prods = sorted(fdf["produto_nome"].dropna().unique().tolist())
+        sel_prods = st.multiselect("🔍 Produto", all_prods, default=[], placeholder="Buscar produto...", key="dyn_prod")
     with cfg6:
-        search_cli = st.text_input("🔍 Cliente", placeholder="Buscar cliente...")
+        all_clis = sorted(fdf["cliente"].dropna().unique().tolist())
+        sel_clis = st.multiselect("🔍 Cliente", all_clis, default=[], placeholder="Buscar cliente...", key="dyn_cli")
 
     # Apply product/client search filters
     dyn_df = fdf.copy()
-    if search_prod:
-        dyn_df = dyn_df[dyn_df["produto_nome"].str.contains(search_prod, case=False, na=False)]
-    if search_cli:
-        dyn_df = dyn_df[dyn_df["cliente"].str.contains(search_cli, case=False, na=False)]
+    if sel_prods:
+        dyn_df = dyn_df[dyn_df["produto_nome"].isin(sel_prods)]
+    if sel_clis:
+        dyn_df = dyn_df[dyn_df["cliente"].isin(sel_clis)]
 
     value_col = "vr_nf" if sel_value == "Valor NF (R$)" else "quantidade"
     agg_func = "sum"
