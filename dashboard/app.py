@@ -412,8 +412,8 @@ with pivot_tab1:
         st.session_state["dyn_rows"] = ["Ano", "Vendedor"]
     if "dyn_cols" not in st.session_state:
         st.session_state["dyn_cols"] = ["Trimestre"]
-    if "dyn_value" not in st.session_state:
-        st.session_state["dyn_value"] = "Valor NF (R$)"
+    if "dyn_value" not in st.session_state or st.session_state["dyn_value"] not in ("R$", "Qtd"):
+        st.session_state["dyn_value"] = "R$"
 
     # Compact config bar
     c1, c2, c3, c4, c5 = st.columns([2, 2, 1.2, 2, 2])
