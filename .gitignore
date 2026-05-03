@@ -2,8 +2,15 @@
 .env
 *.env
 
+# Source data files (too large for git, not needed for dashboard)
+BI Cigam*.xlsx
+
 # ETL output data (may contain customer/commercial data)
-outputs/
+# Allow dashboard CSV (needed for Streamlit Cloud deploy)
+outputs/*
+!outputs/csv/
+outputs/csv/*
+!outputs/csv/combined_cigam_odoo.csv
 
 # Python
 __pycache__/

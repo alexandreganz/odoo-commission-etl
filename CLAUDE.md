@@ -1,552 +1,381 @@
-# CLAUDE.md - Odoo ETL & Analytics Dashboard
+# CLAUDE.md — Odoo + CIGAM Sales ETL & Dashboard
 
-This file provides guidance to Claude Code when working with the Odoo ETL project.
+This file provides guidance to Claude Code when working with this project.
 
-## Project Overview
+---
 
-Professional Python application for extracting sales data from Odoo ERP and visualizing it through an interactive Streamlit dashboard.
+## Overview
 
-**Tech Stack:**
-- Python 3.12
-- Streamlit 1.28.0 (dashboard framework)
-- Pandas 2.1.3 (data processing)
-- Plotly 5.18.0 (interactive charts)
-- XML-RPC (Odoo API integration)
+Sales analytics pipeline that combines two data sources into one unified dataset for a Streamlit dashboard:
 
-**Data Scale:** 18,590 sales records with 9 core fields
+| Source | Coverage | Row count | File |
+|---|---|---|---|
+| **Odoo** (live ERP) | 2026 NF-e level (authorized) | ~6,700 items | `sales_items_odoo_2026.csv` |
+| **CIGAM** (legacy ERP Excel) | 2024–2025 historical | ~117,000 rows | `BI Cigam - Gestão de Resultado (RICHARD).xlsx` |
+| **Combined** | All years, both sources | ~124,000 rows | `combined_cigam_odoo.csv` |
+
+CIGAM is filtered to pre-2026 only (Odoo covers 2026). No duplication.
+
+**Tech Stack:** Python 3.9 · Streamlit 1.28.0 · Pandas · rapidfuzz · XML-RPC
+
+---
 
 ## Project Structure
 
 ```
-Odoo/
-├── config/
-│   └── settings.py                   # Centralized configuration loader
+odoo-commission-etl/
+├── .env                                      # Odoo credentials (never commit)
+├── BI Cigam - Gestão de Resultado (RICHARD).xlsx  # CIGAM source data
 │
-├── src/
-│   ├── etl/
-│   │   ├── odoo_client.py           # Shared Odoo XML-RPC client
-│   │   ├── main_pipeline.py         # Full hierarchical extraction
-│   │   └── incremental_sync.py      # Delta updates only
-│   │
-│   └── metadata/
-│       ├── generate_schema.py       # Generate DBML schema
-│       ├── field_value_mapper.py    # Extract unique field values
-│       └── discover_tags.py         # Discover model relationships
+├── src/etl/
+│   ├── extract_odoo_2026.py                 # Step 1: pulls from Odoo API (NF-e level)
+│   ├── cigam_append.py                      # Step 2: merges Odoo + CIGAM
+│   └── odoo_client.py                       # Shared Odoo connection class
 │
 ├── dashboard/
-│   ├── app.py                       # Main dashboard entry point
-│   │
-│   ├── pages/                       # Multi-page dashboard
-│   │   ├── 1_overview.py           # Executive summary
-│   │   ├── 2_sales_analysis.py     # Salesperson & customer insights
-│   │   ├── 3_product_analysis.py   # Product performance
-│   │   └── 4_operations.py         # Operation type breakdown
-│   │
-│   ├── components/                  # Reusable UI components
-│   │   ├── filters.py              # Sidebar filter widgets
-│   │   ├── charts.py               # Plotly chart generators (10+ charts)
-│   │   └── metrics.py              # KPI card components
-│   │
-│   └── utils/                       # Data utilities
-│       ├── data_loader.py          # CSV loading with @st.cache_data
-│       └── data_processor.py       # Aggregations & transformations
+│   └── app.py                               # Streamlit single-page dashboard
 │
-└── outputs/                         # Generated files (gitignored)
-    ├── csv/
-    │   ├── final_sales_export_top_down.csv  # Main dataset (18,590 rows)
-    │   └── sales_data.json                  # Incremental sync output
-    └── metadata/
-        ├── odoo_datamodel.csv
-        ├── odoo_unique_values_map.csv
-        └── odoo_model_fixed.dbml
+└── outputs/csv/                             # All generated files (gitignored)
+    ├── sales_items_odoo_2026.csv            # NF-e item-level Odoo data
+    ├── vendedor_mapping.csv                  # CIGAM ↔ Odoo rep name mapping
+    ├── vendedores.csv                        # Odoo vendedor list
+    └── combined_cigam_odoo.csv              # Final merged dataset
 ```
 
-## Quick Commands
+---
 
-### Launch Dashboard
+## How to Re-Run the Full Pipeline
+
 ```bash
-cd Odoo
-python -m streamlit run dashboard/app.py
-# Access at: http://localhost:8501
+cd odoo-commission-etl
+
+# Step 1 — Extract from Odoo (~3 min, NF-e level, batched 0.25s/call)
+python3 -m src.etl.extract_odoo_2026
+
+# Step 2 — Merge with CIGAM Excel (~3 min)
+python3 -m src.etl.cigam_append
+
+# Step 3 — Launch dashboard
+python3 -m streamlit run dashboard/app.py
+# → http://localhost:8501
 ```
 
-### ETL Operations
-```bash
-# Full extraction (5-10 min for 18k+ rows)
-python -m src.etl.main_pipeline
+---
 
-# Incremental sync (<1 min)
-python -m src.etl.incremental_sync
+## Odoo Model Relationships
 
-# Generate metadata
-python -m src.metadata.generate_schema
-python -m src.metadata.field_value_mapper
-python -m src.metadata.discover_tags
+This is the most important section for future extraction work.
+
+### Model Map
+
+```
+pedido.documento          (Sales Order header)
+│
+├─ operacao_id            → pedido.operacao       (order workflow type)
+│   └─ tipo               = 'venda' | 'compra' | 'os' | 'romaneio' | ...
+│
+├─ operacao_produto_id    → sped.operacao         (FISCAL operation on products)
+│   └─ display_name       = 'Venda de mercadoria', 'Venda para Produtor Rural', ...
+│                           ← THIS is the correct field to filter sales type
+│
+├─ vendedor_id            → hr.employee / res.partner  (salesperson)
+│   └─ name               = 'Pedro Pereira Monteiro - Pedro (Alessandro)'
+│
+├─ data_contabil          date  ← use for month/year accounting period
+├─ data_orcamento         date  ← order creation date
+└─ numero                 char  = 'PV-8151/26'  ← /YY suffix = year
+
+
+sped.documento.item       (Sales Order line items)
+│
+├─ pedido_id              → pedido.documento      (parent order)
+├─ produto_id             → sped.produto          (product)
+│   └─ familia_id         → sped.produto.familia  ← product family / category
+│       └─ display_name   = 'Pastagens » Sementes', 'Herbicidas » Químicos', ...
+│
+├─ produto_codigo         char  = '034082'  (6-digit zero-padded, matches CIGAM)
+├─ produto_nome           char  = 'ROUNDUP TRANSORB R 5L'
+├─ ncm                    char  = '38.08.93.22 - Herbicida...' (fiscal NCM code)
+├─ quantidade, vr_unitario, vr_nf, vr_desconto
+└─ numero                 char  = inherited from order
+
+
+sped.produto              (Product master)
+│
+├─ codigo                 char  = '034082'  (matches CIGAM Material Cód)
+└─ familia_id             → sped.produto.familia  (product family)
+    └─ display_name       format: 'SubFamily » ParentGroup'
+                          e.g.   'Pastagens » Sementes'
+
+
+sped.operacao             (Fiscal operations / NF-e operation types)
+│   referenced by operacao_produto_id on pedido.documento
+│   and operacao_servico_id for service items
+└─ display_name           = 'Venda de mercadoria', 'Devolução de venda', etc.
+
+
+pedido.operacao           (Order workflow types — NOT the fiscal operation)
+│   referenced by operacao_id on pedido.documento
+│   DO NOT confuse with sped.operacao
+└─ nome                   = 'Venda de Mercadoria (NF-e)', 'Venda a Consumidor (NFC-e)', ...
+    tipo                  = 'venda' | 'compra' | 'os' | ...
 ```
 
-## Data Schema
+### Key Distinction: pedido.operacao vs sped.operacao
 
-### CSV Output: final_sales_export_top_down.csv
+| Field on pedido.documento | Model | What it means |
+|---|---|---|
+| `operacao_id` | `pedido.operacao` | Workflow type ("Venda de Mercadoria NF-e"). Controls stages, permissions, document flow. Has `nome` field (not `name`). |
+| `operacao_produto_id` | `sped.operacao` | **Fiscal operation** for products — the NF-e CFOP type. This is what differentiates "Venda para Produtor Rural" from a standard sale. Filter extractions by this field. |
+| `operacao_servico_id` | `sped.operacao` | Same but for service items on the order. |
 
-| Field | Type | Description | Example |
-|-------|------|-------------|---------|
-| `numero` | String | Order document number | "INV-0001/26", "PV-2964/26" |
-| `operacao_id` | String | Operation type | "Venda de Mercadoria", "Inventário" |
-| `etapa_tag_ids` | String | Workflow stage/tag | "43", "Approved" |
-| `vendedor_id` | String | Salesperson name | "João Silva" |
-| `participante_id` | String | Customer name with CNPJ | "Empresa ABC - 12.345.678/0001-99" |
-| `produto_codigo` | String | Product code | "PROD-001" |
-| `produto_ncm_id` | String | NCM classification code | "8471.30.12" |
-| `quantidade` | Float | Item quantity | 10.0 |
-| `vr_nf` | Float | Invoice value (BRL) | 1500.50 |
+### All sped.operacao (Fiscal Operations) — Sales-Relevant
 
-**Derived fields (added by dashboard):**
-- `year` - Extracted from `numero` (e.g., "26" from "INV-0001/26")
-- `doc_type` - Document prefix (e.g., "INV", "PV")
+| id | display_name | Use |
+|---|---|---|
+| 1 | Venda de mercadoria | Standard product sale |
+| 2 | Venda para Produtor Rural | Sale to rural producer (different CFOP) |
+| 38 | Venda de mercadoria (NFC-e) | Consumer sale via NFC-e |
+| 40 | Venda Antecipada - Entrega Futura | Forward sale (future delivery) |
+| 29 | Venda Antecipada - Entrega Futura p/ Produtor Rural | Forward sale to rural producer |
+| 41 | Devolução de venda | Sales return |
+| 46 | Devolução de Venda para Produtor Rural | Rural producer return |
+| 42 | Estorno de venda futura | Reversal of forward sale |
+| 30 | Remessa Bonificação, Doação ou Brinde | Bonus/donation remittance |
+| 31 | Remessa de Venda Antecipada p/ Produtor Rural | Forward remittance — rural |
+| 45 | Remessa de Venda Antecipada | Forward remittance |
+
+### All pedido.operacao (Workflow Types) — Sales Relevant
+
+| id | nome | tipo |
+|---|---|---|
+| 9 | Venda de Mercadoria (NF-e) | venda |
+| 25 | Venda Antecipada - Entrega Futura (NF-e) | venda |
+| 30 | Venda a Consumidor (NFC-e) | venda |
+| 26 | Remessa de Venda Antecipada | venda |
+
+The Faturamento - Geral report in Odoo filters on `operacao_id in [9, 25, 30]` (pedido.operacao).
+
+### Useful Filter Patterns
+
+```python
+# Current extraction: NF-e level (sped.documento)
+# This matches the Faturamento - Geral report exactly
+domain = [
+    ('operacao_id', 'in', [1, 2, 29, 38, 40, 41, 42, 46]),
+    ('empresa_id', '=', 1),
+    ('data_emissao', '>=', '2026-01-01'),
+    ('data_emissao', '<=', '2026-12-31'),
+    ('situacao_nfe', '=', 'autorizada'),
+    ('pedido_id', '!=', False),   # exclude orphan devoluções
+]
+
+# Completed deliveries only (etapa_tag_ids=60 = "Mercadoria Entregue")
+domain = [
+    ('etapa_tag_ids', '=', 60),
+    ('numero', 'ilike', '/26'),
+]
+```
+
+---
+
+## ETL Script Details
+
+### extract_odoo_2026.py
+
+Extracts sales data at the **NF-e level** (`sped.documento`), matching the exact logic
+used by Odoo's "Faturamento - Geral" report. Validated with R$ 0.00 delta for Feb and March 2026.
+
+**NF-e-level approach (single pass):**
+1. Query `sped.documento` (authorized NF-es) filtered by `operacao_id`, `empresa_id=1`, `data_emissao` in 2026, `situacao_nfe='autorizada'`, `pedido_id != False`
+2. Fetch items via `sped.documento.item.documento_id`
+3. Get vendedor from `pedido.documento.vendedor_id` via `sped.documento.pedido_id`
+4. Get familia from `sped.produto.familia_id` via item `produto_id`
+
+**Classification:**
+- Devolução: `operacao_id in [41, 42, 46]` → `vr_nf` stored as **negative**
+- OS: `pedido_tipo = 'os'` on `sped.documento`
+- Venda: everything else
+
+**Why NF-e level, not order level:**
+- The Faturamento report queries `sped.documento` directly, not `pedido.documento`
+- OS items have `pedido_id=False` on `sped.documento.item` — they're linked only via `documento_id`
+- Only `autorizada` NF-es are included (excludes `inutilizada`, `em_digitacao`, `a_enviar`)
+- Orphan devoluções (no `pedido_id`) are excluded — the report can't assign them to a vendedor
+
+**Batching strategy (server-safe):**
+- NF-es: paginated 200/call via `search_read` with `offset`
+- Items: `documento_id in [batch of 100]` per call
+- Vendedores: `pedido.documento read [batch of 100]` per call
+- Familia: `sped.produto read [batch of 100]` per call
+- Sleep: 0.25s between every API call
+
+**Output:**
+
+`sales_items_odoo_2026.csv` — one row per NF-e item:
+```
+item_id, documento_id, pedido_id, numero, tipo, vendedor, operacao,
+ano, mes, empresa_id, empresa,
+produto_id, produto_codigo, produto_nome, ncm,
+quantidade, vr_unitario, vr_nf, familia
+```
+
+**To add new fiscal operations:** edit `SALE_OP_IDS` or `DEVOL_OP_IDS` at the top.
+
+**To extract a different year:** change date range in `fetch_nfes()`.
+
+### cigam_append.py
+
+Merges the Odoo items CSV with the CIGAM Excel export.
+CIGAM data is filtered to **pre-2026 only** (Odoo covers 2026).
+
+**Key logic:**
+1. Loads CIGAM Excel (sheet index 0 — name has NFD encoding, use index not name)
+2. Loads Odoo items CSV (NF-e level, already has all fields from extract step)
+3. Filters CIGAM to `ano < 2026` to avoid duplication
+4. Fuzzy-matches CIGAM `Representante` → Odoo `vendedor` (3-pass: pre-mapped CSV → rapidfuzz ≥85 → no_match)
+5. Adds `familia_grupo` column that normalises both sources to 9 common groups
+6. Concatenates and writes `combined_cigam_odoo.csv`
+
+**Vendedor matching:** pre-resolved pairs live in `vendedor_mapping.csv`. To add a new match, edit that CSV and set `match_type` to `exact` or `partial`.
+
+---
+
+## Combined Dataset Schema
+
+`outputs/csv/combined_cigam_odoo.csv` — ~124,000 rows
+
+| Column | Odoo value | CIGAM value | Notes |
+|---|---|---|---|
+| `source` | `'odoo'` | `'cigam'` | |
+| `ano` | from `data_emissao` | from `Data` column | |
+| `mes` | from `data_emissao` | from `Data` column | 1–12 |
+| `tipo` | `venda`/`os`/`devolucao` | `Operação Resultado` | |
+| `operacao` | `sped.operacao` display name | `Operação Resultado` from Excel | |
+| `item_id` | `sped.documento.item` id | `Material Cód` | |
+| `documento_id` | `sped.documento` id | *(empty)* | NF-e document ID |
+| `numero` | NF-e number (integer string) | NF integer as string | |
+| `vendedor_raw` | vendedor name | `Representante` original | |
+| `vendedor` | vendedor name | fuzzy-matched to Odoo name | |
+| `vendedor_match_type` | `'odoo'` | `exact`/`fuzzy`/`no_match` | |
+| `vendedor_match_score` | `100` | rapidfuzz score 0–100 | |
+| `produto_id` | Odoo internal int ID | `Material Cód` | different spaces |
+| `produto_codigo` | 6-digit zero-padded code | `Material Cód` | matches across sources |
+| `produto_nome` | product description | `Material` column | |
+| `ncm` | fiscal NCM code string | CIGAM `Grupo` (reused column) | different semantics |
+| `familia` | `sped.produto.familia_id` label | CIGAM `Grupo` (uppercase) | granular Odoo, flat CIGAM |
+| `familia_grupo` | parent from `'X » ParentGroup'` | normalised CIGAM group | **unified for filtering** |
+| `empresa_id` | 1 (Santa Inês) | *(empty)* | |
+| `empresa` | `'AgroMáquinas Santa Inês'` | *(empty)* | |
+| `quantidade` | float | float | |
+| `vr_unitario` | float | `Valor Total Item / Quantidade` | |
+| `vr_nf` | float (negative for devoluções) | `Valor Total Item` | |
+
+### familia_grupo Normalisation Map
+
+Both sources converge to these 9 values:
+
+| familia_grupo | Odoo familia examples | CIGAM Grupo |
+|---|---|---|
+| Sementes | Pastagens » Sementes | SEMENTES |
+| Químicos | Herbicidas » Químicos, Adjuvantes » Químicos | QUIMICOS |
+| Máquinas | Roçadeiras » Máquinas, Motosserras » Máquinas | MAQUINAS |
+| Peças e Acessórios | Genérico » Peças e Acessórios, Filtros » Peças e Acessórios | PECAS E ACESSORIOS |
+| Nutrição | Minerais » Nutrição, Proteinados » Nutrição | NUTRICAO |
+| Serviços | *(rare in Odoo)* | SERVICOS |
+| Ferragens e Acessórios | Ferragens » Ferragens e Acessórios, Epi » Ferragens e Acessórios | FERRAGENS E ACESSORIOS |
+| Veterinária | Acessórios de Farmácia » Veterinária | VETERINARIA |
+| Imobilizado | *(rare)* | IMOBILIZADO |
+
+---
+
+## Dashboard
+
+**Entry point:** `python -m streamlit run dashboard/app.py`
+
+**Single-page layout** (`dashboard/app.py`) with 5 charts:
+
+1. **Time Series Line** — Monthly sales 2024–2026, colored by operação (venda/devolução/os)
+2. **Horizontal Bar — Vendedores** — Top 15 vendedores by revenue
+3. **Horizontal Bar — Família/Grupo** — Top 15 product families by revenue
+4. **Treemap** — Top 20 produtos grouped by família/grupo
+5. **Pivot Table** — Months × (Ano / Vendedor or Família), switchable via radio button
+
+**KPI cards:** Faturamento Total, Notas Fiscais, Produtos Ativos, Vendedores, Clientes.
+
+**Sidebar filters:**
+- Operação (maps to `tipo_norm`: venda / devolução / os)
+- Ano + Mês (multiselect)
+- Vendedor (search + multiselect — leave empty = all)
+- Família / Grupo (search + multiselect — leave empty = all)
+
+**Pivot rendering:** uses raw HTML via `st.markdown(unsafe_allow_html=True)` — not `st.dataframe`. Year rows are dark blue headers; rows sorted by Total desc; cells have heat-tint proportional to column max.
+
+**Streamlit 1.28.0 compatibility notes:**
+- Use `use_column_width=True` (NOT `use_container_width`)
+- No `st.switch_page` (not available in 1.28.0)
+- Cache with `@st.cache_data(ttl=3600)`
+
+---
 
 ## Configuration
 
-### Environment Variables (.env)
-
-**CRITICAL:** Never commit `.env` - contains Odoo credentials
-
+`.env` file (never commit):
 ```env
 ODOO_URL=https://agromaquinas.teste.tauga.online
 ODOO_DB=teste_agromaquinas
-ODOO_USERNAME=teste
-ODOO_PASSWORD=Ale.12125
+ODOO_USERNAME=dashboard
+ODOO_PASSWORD=@Dash#2026%
 MAIN_MODEL=pedido.documento
 ITEM_MODEL=sped.documento.item
 OUTPUT_DIR=outputs
 ```
 
-**Configuration loader:** `config/settings.py`
-- Uses `python-dotenv` to load `.env`
-- Validates required fields with `Config.validate()`
-- Centralized access: `from config.settings import Config`
+API auth: `uid=127` for the `dashboard` user.
 
-## Architecture Patterns
+---
 
-### ETL Pattern: Hierarchical Extraction
+## Known Quirks & Gotchas
 
-**main_pipeline.py** uses a top-down approach:
-1. Fetch orders (Level 1: `pedido.documento`)
-2. For each order, fetch items (Level 2: `sped.documento.item`)
-3. Merge into denormalized rows
-4. Write to CSV with UTF-8-sig encoding
+| Issue | Detail |
+|---|---|
+| CIGAM Excel sheet name | Has NFD encoding — always use `sheet_name=0` (index), never the string name |
+| `pedido.operacao.name` | Field is named `nome`, not `name`. Searching by `name` raises ValueError |
+| `sped.operacao` empty names | `name`/`codigo` fields appear blank via API; use `display_name` instead |
+| Vendedor on items | `vendedor_id` on `sped.documento.item` is often False. Look up from order via `pedido_id` mapping |
+| 2025 orders in Odoo | Only 65 records (all Venda Antecipada placed in 2025). True 2025 data is CIGAM-only |
+| **NF-e level, not order level** | The Faturamento report queries `sped.documento` directly. OS items have `pedido_id=False` on `sped.documento.item` — linked only via `documento_id`. Must query at NF-e level to match report totals. |
+| **Only `autorizada` NF-es** | Report excludes `inutilizada`, `em_digitacao`, `a_enviar` NF-es |
+| **Orphan devoluções excluded** | Devoluções with `pedido_id=False` can't be assigned to a vendedor and are excluded from the report |
+| **No `devolucao_venda` pedido.documento** | Zero `pedido.documento` records have `tipo=devolucao_venda`. All returns are standalone `sped.documento` NF-es with `operacao_id in [41,46,42]` |
+| Devolução vr_nf sign | `sped.documento.item.vr_nf` is stored positive even for returns. Apply `-abs(vr_nf)` to make devoluções reduce net revenue |
+| `relatorio.executa.pedido.documento` | Report wizard/config model, not transactional data |
 
-```python
-# Example usage
-from src.etl.odoo_client import OdooClient
-from config.settings import Config
+---
 
-client = OdooClient()
-uid, models = client.authenticate()
+## Vendedor Mapping
 
-# Clean Odoo [ID, Name] tuples
-clean_name = client.clean_value(field_value)
+`outputs/csv/vendedor_mapping.csv` — manually curated CIGAM ↔ Odoo rep name matches.
 
-# Execute operations
-data = client.execute_kw(model, method, args, kwargs)
-```
+Columns: `cigam_representante`, `odoo_vendedor_id`, `match_type`
 
-### Dashboard Pattern: Cached Data Loading
+`match_type` values:
+- `exact` — confirmed match, used in merge
+- `partial` — confirmed match, used in merge
+- `no_match` — CIGAM-only rep with no Odoo equivalent (kept as-is)
 
-**data_loader.py** uses Streamlit caching:
-```python
-@st.cache_data(ttl=3600)  # Cache for 1 hour
-def load_sales_data():
-    df = pd.read_csv('outputs/csv/final_sales_export_top_down.csv')
-    # Data transformations...
-    return df
-```
+To add a new match: edit the CSV, set `match_type` to `exact`, re-run `cigam_append.py`.
 
-**Benefits:**
-- First load: ~2 seconds
-- Subsequent loads: instant
-- Auto-refresh every hour
+---
 
-### Filter Pattern: Global Sidebar
+## Performance
 
-All pages use the same filter component:
-```python
-from dashboard.components.filters import render_filters
-from dashboard.utils.data_processor import filter_dataframe
-
-# In page
-operations, salespeople, years, value_range = render_filters(df)
-filtered_df = filter_dataframe(df, operations, salespeople, years, value_range)
-```
-
-## Dashboard Components
-
-### 10+ Chart Types (dashboard/components/charts.py)
-
-1. **plot_operation_distribution** - Donut chart (revenue by operation)
-2. **plot_salesperson_performance** - Horizontal bar (top N salespeople)
-3. **plot_product_treemap** - Treemap (top N products)
-4. **plot_customer_distribution** - Bar chart (top N customers)
-5. **plot_value_distribution** - Histogram (invoice values)
-6. **plot_ncm_distribution** - Bar chart (NCM codes)
-7. **plot_stage_distribution** - Bar chart (workflow stages)
-
-All charts use Plotly Express with:
-- Interactive tooltips
-- Responsive sizing
-- Custom color schemes
-- Formatted currency display
-
-### KPI Metrics (dashboard/components/metrics.py)
-
-**Primary KPIs:**
-- Total Revenue (sum of `vr_nf`)
-- Total Orders (unique `numero` count)
-- Active Products (unique `produto_codigo` count)
-- Average Order Value (grouped by `numero`)
-
-**Secondary KPIs:**
-- Total Line Items
-- Total Quantity
-- Unique Customers
-- Active Salespeople
-
-## Common Development Tasks
-
-### Adding a New Chart
-
-1. **Create chart function** in `dashboard/components/charts.py`:
-```python
-def plot_new_analysis(df, param=None):
-    """
-    Description of what the chart shows.
-
-    Args:
-        df (pd.DataFrame): Input dataframe
-        param: Optional parameter
-
-    Returns:
-        plotly.graph_objects.Figure
-    """
-    # Create chart using plotly express
-    fig = px.bar(...)
-
-    # Customize
-    fig.update_traces(...)
-    fig.update_layout(...)
-
-    return fig
-```
-
-2. **Import and use** in dashboard page:
-```python
-from dashboard.components.charts import plot_new_analysis
-
-fig = plot_new_analysis(filtered_df)
-st.plotly_chart(fig, use_column_width=True)
-```
-
-### Adding a New Dashboard Page
-
-1. **Create file** `dashboard/pages/N_page_name.py` (N = page number)
-
-2. **Standard template:**
-```python
-import streamlit as st
-import sys
-from pathlib import Path
-
-# Add project root to path
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
-
-from dashboard.utils.data_loader import load_sales_data
-from dashboard.utils.data_processor import filter_dataframe
-from dashboard.components.filters import render_filters
-
-st.set_page_config(page_title="Page Name", page_icon="📊", layout="wide")
-
-st.title("📊 Page Title")
-
-# Load and filter data
-df = load_sales_data()
-operations, salespeople, years, value_range = render_filters(df)
-filtered_df = filter_dataframe(df, operations, salespeople, years, value_range)
-
-# Your page content here
-```
-
-3. Streamlit auto-detects and adds to sidebar navigation
-
-### Adding a New Filter
-
-Edit `dashboard/components/filters.py`:
-```python
-def render_filters(df):
-    # Existing filters...
-
-    # New filter
-    new_filter_values = st.sidebar.multiselect(
-        "New Filter Label",
-        options=sorted(df['column_name'].unique().tolist()),
-        default=all_values,
-        help="Filter description"
-    )
-
-    return operations, salespeople, years, value_range, new_filter_values
-```
-
-Update `filter_dataframe()` in `dashboard/utils/data_processor.py` to apply the new filter.
-
-### Modifying ETL Scripts
-
-**When changing extraction logic:**
-1. Edit `src/etl/main_pipeline.py` or `src/etl/incremental_sync.py`
-2. Test with small dataset first (add limit to search_read)
-3. Update field lists in both order_fields and item_fields
-4. Update CSV headers accordingly
-5. Run full extraction: `python -m src.etl.main_pipeline`
-6. Verify dashboard still loads: `python -m streamlit run dashboard/app.py`
-
-**OdooClient methods:**
-- `authenticate()` - Get uid and models proxy
-- `clean_value(val)` - Extract names from [ID, Name] tuples
-- `execute_kw(model, method, args, kwargs)` - Execute Odoo operations
-
-## Troubleshooting
-
-### Dashboard Won't Start
-
-**Error:** `streamlit: command not found`
-```bash
-# Solution: Use python module syntax
-python -m streamlit run dashboard/app.py
-```
-
-**Error:** `Data file not found`
-```bash
-# Solution: Run ETL pipeline first
-python -m src.etl.main_pipeline
-```
-
-### ETL Authentication Fails
-
-**Error:** `Authentication failed`
-```bash
-# Check .env file:
-cat .env  # Verify credentials
-# Test credentials in Odoo web interface first
-# Ensure ODOO_URL includes https://
-```
-
-### Dashboard Shows Errors
-
-**TypeError about use_column_width:**
-- Already fixed in current version
-- Streamlit 1.28.0 compatibility
-
-**Missing data in charts:**
-```python
-# Debug: Check data filtering
-print(f"Original rows: {len(df)}")
-print(f"Filtered rows: {len(filtered_df)}")
-# Adjust filters in sidebar
-```
-
-### Performance Issues
-
-**Slow dashboard loading:**
-- First load takes ~2 seconds (normal)
-- Subsequent loads are instant (cached)
-- Cache refreshes every hour
-- Check CSV file size: `ls -lh outputs/csv/*.csv`
-
-**ETL takes too long:**
-- Batch size is 50 orders per request
-- Sleep 0.1s between batches (API rate limiting)
-- For faster development, add limit to search_read:
-  ```python
-  {'fields': order_fields, 'limit': 50, 'offset': offset}  # Change 50 to 10 for testing
-  ```
-
-## Streamlit Version Notes
-
-**Current version:** 1.28.0
-
-**API compatibility:**
-- ✅ `use_column_width=True` for st.plotly_chart() and st.image()
-- ❌ `use_container_width` (only in newer versions)
-- ❌ `use_column_width` for st.dataframe() (removed from code)
-
-**If upgrading Streamlit:**
-```bash
-pip install --upgrade streamlit
-# Change use_column_width → use_container_width
-# Test all dashboard pages
-```
-
-## Security Best Practices
-
-### Credentials
-- ✅ `.env` file is gitignored
-- ✅ `.env.example` provided as template
-- ✅ No hardcoded credentials in any Python files
-- ✅ `config/settings.py` validates required env vars
-
-### Data Files
-- ✅ `outputs/` directory is gitignored
-- ✅ CSV files contain customer data - never commit
-- ✅ Dashboard is localhost-only by default (port 8501)
-
-### Code Review Checklist
-- [ ] No credentials in code
-- [ ] No sensitive data in git
-- [ ] .env.example updated if new vars added
-- [ ] outputs/ directory not committed
-- [ ] README.md updated if behavior changes
-
-## Performance Benchmarks
-
-### ETL Pipeline
-- **Full extraction:** 18,590 rows in ~5-10 minutes
-- **Batch size:** 50 orders per API call
-- **Rate limiting:** 0.1s sleep between batches
-- **Output size:** ~4.5 MB CSV file
-
-### Dashboard
-- **Data loading:** <2 seconds (first load), instant (cached)
-- **Filter updates:** Real-time (<100ms)
-- **Memory usage:** ~200 MB for typical dataset
-- **Chart rendering:** <500ms per chart
-
-## Testing
-
-### Manual Testing Checklist
-
-**ETL Pipeline:**
-```bash
-# 1. Test authentication
-python -c "from src.etl.odoo_client import OdooClient; c = OdooClient(); c.authenticate(); print('✅ Auth OK')"
-
-# 2. Test main pipeline (small sample)
-# Edit main_pipeline.py to add limit=10
-python -m src.etl.main_pipeline
-
-# 3. Verify output
-head outputs/csv/final_sales_export_top_down.csv
-wc -l outputs/csv/final_sales_export_top_down.csv
-```
-
-**Dashboard:**
-```bash
-# 1. Test data loader
-python -c "from dashboard.utils.data_loader import load_sales_data; df = load_sales_data(); print(f'Loaded {len(df)} rows')"
-
-# 2. Launch dashboard
-python -m streamlit run dashboard/app.py
-
-# 3. Test each page:
-#    - Home (app.py)
-#    - Overview (1_overview.py)
-#    - Sales Analysis (2_sales_analysis.py)
-#    - Product Analysis (3_product_analysis.py)
-#    - Operations (4_operations.py)
-
-# 4. Test filters:
-#    - Select different operations
-#    - Filter by salesperson
-#    - Adjust value range
-#    - Verify row count changes
-
-# 5. Test exports:
-#    - Download filtered data
-#    - Download metrics tables
-#    - Verify UTF-8 encoding
-```
-
-## Dependencies
-
-```txt
-python-dotenv==1.0.0  # Environment variable management
-streamlit==1.28.0     # Dashboard framework
-pandas==2.1.3         # Data processing
-plotly==5.18.0        # Interactive visualizations
-```
-
-**Installing:**
-```bash
-pip install -r requirements.txt
-```
-
-**Upgrading:**
-```bash
-# Update all dependencies
-pip install --upgrade -r requirements.txt
-
-# Test after upgrading
-python -m streamlit run dashboard/app.py
-```
-
-## Git Workflow
-
-### .gitignore Coverage
-```
-.env                  # Credentials
-outputs/              # Generated data files
-__pycache__/          # Python cache
-*.pyc, *.pyo, *.pyd  # Compiled Python
-.streamlit/secrets.toml  # Streamlit secrets
-```
-
-### Recommended Commit Messages
-```
-feat: Add new chart for NCM distribution
-fix: Resolve dataframe rendering issue on page 2
-refactor: Extract filter logic to separate component
-docs: Update README with new dashboard features
-perf: Optimize data loading with better caching
-```
-
-## Deployment Notes
-
-**Current setup:** Localhost development only
-
-**For production deployment:**
-1. **Dashboard hosting:** Streamlit Cloud, AWS, or Railway
-2. **Authentication:** Add Streamlit authentication
-3. **Secrets management:** Use st.secrets instead of .env
-4. **Data refresh:** Set up cron job for ETL pipeline
-5. **Monitoring:** Add logging and error tracking
-
-**Not recommended for production as-is:**
-- Credentials in .env (use secrets manager)
-- No authentication (add Streamlit auth)
-- Manual ETL execution (automate with scheduler)
-
-## Support & Resources
-
-**Documentation:**
-- Full README: `README.md`
-- Quick start: `QUICK_START.md`
-- Implementation summary: `IMPLEMENTATION_SUMMARY.md`
-
-**Streamlit docs:** https://docs.streamlit.io/
-**Plotly docs:** https://plotly.com/python/
-**Pandas docs:** https://pandas.pydata.org/
-
-## Project History
-
-**Original state:**
-- 5 flat Python scripts with hardcoded credentials
-- No project structure
-- No visualization tools
-
-**Current state:**
-- Professional project structure (24 Python modules)
-- Secure configuration with .env
-- Interactive 5-page dashboard
-- 10+ chart types
-- Comprehensive documentation (280+ lines)
-
-**Implementation date:** 2026-02-03
-**Python version:** 3.12
-**Data scale:** 18,590 rows
+| Step | Records | Time | Batching |
+|---|---|---|---|
+| extract_odoo_2026.py NF-es | ~3,500 | ~3 min | 200/page, 0.25s |
+| extract_odoo_2026.py items | ~6,700 | included | 100 NF-e IDs/call |
+| extract_odoo_2026.py vendedores | ~3,450 | included | 100 order IDs/call |
+| extract_odoo_2026.py familia | ~1,400 products | included | 100 products/call |
+| cigam_append.py Excel load | 117,029 rows | ~60s | single read |
+| cigam_append.py vendedor match | 31 unique reps | <1s | vectorised |
+| Dashboard first load | ~124,000 rows | ~2s | cached 1h |
