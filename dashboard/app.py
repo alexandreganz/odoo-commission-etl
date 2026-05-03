@@ -279,14 +279,37 @@ fig_ts.update_layout(
 fig_ts.update_traces(hovertemplate="R$ %{y:,.0f}")
 st.plotly_chart(fig_ts, use_container_width=True)
 
-# ── Charts 2, 3 & 4 — Horizontal Bars side by side ───────────────────────────
+# ── Charts 2, 3 & 4 — Horizontal Bars side by side (cross-filter on click) ────
+
+# Initialize cross-filter state
+if "chart_filter_field" not in st.session_state:
+    st.session_state["chart_filter_field"] = None
+    st.session_state["chart_filter_value"] = None
+
+chart_fdf = fdf.copy()
+active_filter = None
+if st.session_state["chart_filter_field"] and st.session_state["chart_filter_value"]:
+    field = st.session_state["chart_filter_field"]
+    value = st.session_state["chart_filter_value"]
+    chart_fdf = fdf[fdf[field] == value].copy()
+    active_filter = f"{value}"
+
+if active_filter:
+    fcol1, fcol2 = st.columns([6, 1])
+    with fcol1:
+        st.info(f"🔍 Filtro ativo: **{active_filter}** — os gráficos abaixo mostram apenas este recorte")
+    with fcol2:
+        if st.button("✖ Limpar filtro"):
+            st.session_state["chart_filter_field"] = None
+            st.session_state["chart_filter_value"] = None
+            st.rerun()
 
 col_left, col_mid, col_right = st.columns(3)
 
 # Chart 2 — Sales per Vendedor
 with col_left:
     vend_data = (
-        fdf.groupby("vendedor")["vr_nf"].sum()
+        chart_fdf.groupby("vendedor")["vr_nf"].sum()
         .sort_values(ascending=True)
         .tail(15)
         .reset_index()
@@ -304,12 +327,19 @@ with col_left:
         height=450, showlegend=False,
     )
     fig_vend.update_traces(hovertemplate="<b>%{y}</b><br>R$ %{x:,.0f}<extra></extra>")
-    st.plotly_chart(fig_vend, use_container_width=True)
+    event_vend = st.plotly_chart(fig_vend, use_container_width=True, on_select="rerun", key="vend_chart")
+    if event_vend and event_vend.selection and event_vend.selection.points:
+        clicked = event_vend.selection.points[0]
+        val = clicked.get("y") or clicked.get("label")
+        if val and (st.session_state["chart_filter_field"] != "vendedor" or st.session_state["chart_filter_value"] != val):
+            st.session_state["chart_filter_field"] = "vendedor"
+            st.session_state["chart_filter_value"] = val
+            st.rerun()
 
 # Chart 3 — Sales per Familia Grupo
 with col_mid:
     fam_data = (
-        fdf.groupby("familia_grupo")["vr_nf"].sum()
+        chart_fdf.groupby("familia_grupo")["vr_nf"].sum()
         .sort_values(ascending=True)
         .tail(15)
         .reset_index()
@@ -327,17 +357,23 @@ with col_mid:
         height=450, showlegend=False,
     )
     fig_fam.update_traces(hovertemplate="<b>%{y}</b><br>R$ %{x:,.0f}<extra></extra>")
-    st.plotly_chart(fig_fam, use_container_width=True)
+    event_fam = st.plotly_chart(fig_fam, use_container_width=True, on_select="rerun", key="fam_chart")
+    if event_fam and event_fam.selection and event_fam.selection.points:
+        clicked = event_fam.selection.points[0]
+        val = clicked.get("y") or clicked.get("label")
+        if val and (st.session_state["chart_filter_field"] != "familia_grupo" or st.session_state["chart_filter_value"] != val):
+            st.session_state["chart_filter_field"] = "familia_grupo"
+            st.session_state["chart_filter_value"] = val
+            st.rerun()
 
 # Chart 4 — Top Clientes
 with col_right:
     cliente_data = (
-        fdf[fdf["cliente"] != ""].groupby("cliente")["vr_nf"].sum()
+        chart_fdf[chart_fdf["cliente"] != ""].groupby("cliente")["vr_nf"].sum()
         .sort_values(ascending=True)
         .tail(15)
         .reset_index()
     )
-    # Truncate long names for display
     cliente_data["display"] = cliente_data["cliente"].str[:35]
     fig_cli = px.bar(
         cliente_data, x="vr_nf", y="display", orientation="h",
@@ -355,12 +391,24 @@ with col_right:
         hovertemplate="<b>%{customdata[0]}</b><br>R$ %{x:,.0f}<extra></extra>",
         customdata=cliente_data[["cliente"]].values,
     )
-    st.plotly_chart(fig_cli, use_container_width=True)
+    event_cli = st.plotly_chart(fig_cli, use_container_width=True, on_select="rerun", key="cli_chart")
+    if event_cli and event_cli.selection and event_cli.selection.points:
+        clicked = event_cli.selection.points[0]
+        # Get full client name from customdata
+        idx = clicked.get("point_index", clicked.get("pointIndex"))
+        if idx is not None and idx < len(cliente_data):
+            val = cliente_data.iloc[idx]["cliente"]
+        else:
+            val = clicked.get("y") or clicked.get("label")
+        if val and (st.session_state["chart_filter_field"] != "cliente" or st.session_state["chart_filter_value"] != val):
+            st.session_state["chart_filter_field"] = "cliente"
+            st.session_state["chart_filter_value"] = val
+            st.rerun()
 
 # ── Chart 5 — Treemap ─────────────────────────────────────────────────────────
 
 tree_data = (
-    fdf.groupby(["familia_grupo", "produto_nome"])["vr_nf"]
+    chart_fdf.groupby(["familia_grupo", "produto_nome"])["vr_nf"]
     .sum()
     .reset_index()
     .sort_values("vr_nf", ascending=False)
