@@ -181,8 +181,9 @@ with st.sidebar:
     st.markdown("##### Dimensões")
 
     # Empresa (company)
-    all_empresas = sorted(df["empresa"].dropna().unique().tolist())
-    sel_empresas = st.multiselect("Empresa", all_empresas, default=all_empresas)
+    EMPRESA_LABELS = {"Santa Inês": "AgroMáquinas Santa Inês", "Bacabal": "AgroMáquinas Bacabal"}
+    sel_empresa_label = st.radio("Empresa", list(EMPRESA_LABELS.keys()), index=0, horizontal=True)
+    sel_empresas = [EMPRESA_LABELS[sel_empresa_label]]
 
     # Vendedor
     all_vends = sorted(df["vendedor"].unique().tolist())
