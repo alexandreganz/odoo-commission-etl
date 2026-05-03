@@ -118,6 +118,7 @@ def load_data() -> pd.DataFrame:
     df["vendedor"] = df["vendedor"].fillna("").astype(str)
     df["vendedor"] = df["vendedor"].replace({"": "Vendedor CIGAM (em branco)", "(sem vendedor)": "Vendedor CIGAM (em branco)"})
     df["familia_grupo"] = df["familia_grupo"].fillna("Outros").astype(str)
+    df["empresa"] = df["empresa"].fillna("Sem empresa").astype(str)
     df["tipo_norm"] = df["tipo_norm"].fillna("").astype(str)
     df["produto_nome"] = df["produto_nome"].fillna("").astype(str)
     df["cliente"] = df["cliente"].fillna("").astype(str)
@@ -178,6 +179,11 @@ with st.sidebar:
         sel_meses = mes_opts if mes_opts else all_meses
 
     st.markdown("##### Dimensões")
+
+    # Empresa (company)
+    all_empresas = sorted(df["empresa"].dropna().unique().tolist())
+    sel_empresas = st.multiselect("Empresa", all_empresas, default=all_empresas)
+
     # Vendedor
     all_vends = sorted(df["vendedor"].unique().tolist())
     vend_search = st.text_input("🔍 Buscar vendedor", placeholder="Filtrar...")
@@ -204,6 +210,7 @@ fdf = df[
     df["tipo_norm"].isin(sel_tipo)
     & df["ano"].isin(sel_anos)
     & df["mes"].isin(sel_meses)
+    & df["empresa"].isin(sel_empresas)
     & df["vendedor"].isin(sel_vendedores)
     & df["familia_grupo"].isin(sel_familias)
 ].copy()

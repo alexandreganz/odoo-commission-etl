@@ -55,6 +55,13 @@ CIGAM_TIPO_MAP = {
     'SERVICO OFICINA':        'os',
     'SERVICO VENDA DIRETA':   'os',
 }
+
+# Maps CIGAM UN Cód → (empresa_id, empresa name) matching Odoo res.company
+CIGAM_UN_MAP = {
+    '001': (1, 'AgroMáquinas Santa Inês'),
+    '002': (2, 'AgroMáquinas Bacabal'),
+}
+
 EXCEL_PATH   = PROJECT_ROOT / 'BI Cigam - Gestão de Resultado (RICHARD).xlsx'
 ODOO_CSV     = PROJECT_ROOT / 'outputs' / 'csv' / 'sales_items_odoo_2026.csv'
 MAPPING_CSV  = PROJECT_ROOT / 'outputs' / 'csv' / 'vendedor_mapping.csv'
@@ -178,7 +185,7 @@ def load_cigam_raw(excel_path: Path) -> pd.DataFrame:
     raw = pd.read_excel(
         excel_path,
         sheet_name=SHEET_NAME,
-        dtype={'Material Cód': str, 'NF': str},
+        dtype={'Material Cód': str, 'NF': str, 'UN Cód': str},
         parse_dates=['Data'],
     )
     print(f'  Loaded {len(raw):,} CIGAM rows')
@@ -235,8 +242,8 @@ def build_cigam_df(raw: pd.DataFrame, pre_map: dict, odoo_names: list,
         'ncm':                  grupo,
         'familia':              grupo,
         'familia_grupo':        _familia_to_grupo(grupo),
-        'empresa_id':           pd.Series([None] * len(raw)),
-        'empresa':              pd.Series([''] * len(raw)),
+        'empresa_id':           raw['UN Cód'].astype(str).map(lambda x: CIGAM_UN_MAP.get(x.strip(), (None, ''))[0]),
+        'empresa':              raw['UN Cód'].astype(str).map(lambda x: CIGAM_UN_MAP.get(x.strip(), (None, ''))[1]),
         'quantidade':           qtd,
         'vr_unitario':          vr_unitario,
         'vr_nf':                vti,

@@ -163,7 +163,7 @@ The Faturamento - Geral report in Odoo filters on `operacao_id in [9, 25, 30]` (
 # This matches the Faturamento - Geral report exactly
 domain = [
     ('operacao_id', 'in', [1, 2, 29, 38, 40, 41, 42, 46]),
-    ('empresa_id', '=', 1),
+    ('empresa_id', 'in', [1, 2]),
     ('data_emissao', '>=', '2026-01-01'),
     ('data_emissao', '<=', '2026-12-31'),
     ('situacao_nfe', '=', 'autorizada'),
@@ -187,7 +187,7 @@ Extracts sales data at the **NF-e level** (`sped.documento`), matching the exact
 used by Odoo's "Faturamento - Geral" report. Validated with R$ 0.00 delta for Feb and March 2026.
 
 **NF-e-level approach (single pass):**
-1. Query `sped.documento` (authorized NF-es) filtered by `operacao_id`, `empresa_id=1`, `data_emissao` in 2026, `situacao_nfe='autorizada'`, `pedido_id != False`
+1. Query `sped.documento` (authorized NF-es) filtered by `operacao_id`, `empresa_id in [1,2]`, `data_emissao` in 2026, `situacao_nfe='autorizada'`, `pedido_id != False`
 2. Fetch items via `sped.documento.item.documento_id`
 3. Get vendedor from `pedido.documento.vendedor_id` via `sped.documento.pedido_id`
 4. Get familia from `sped.produto.familia_id` via item `produto_id`
@@ -265,8 +265,8 @@ CIGAM data is filtered to **pre-2026 only** (Odoo covers 2026).
 | `ncm` | fiscal NCM code string | CIGAM `Grupo` (reused column) | different semantics |
 | `familia` | `sped.produto.familia_id` label | CIGAM `Grupo` (uppercase) | granular Odoo, flat CIGAM |
 | `familia_grupo` | parent from `'X » ParentGroup'` | normalised CIGAM group | **unified for filtering** |
-| `empresa_id` | 1 (Santa Inês) | *(empty)* | |
-| `empresa` | `'AgroMáquinas Santa Inês'` | *(empty)* | |
+| `empresa_id` | 1 (Santa Inês) or 2 (Bacabal) | CIGAM `UN Cód` mapped | |
+| `empresa` | `'AgroMáquinas Santa Inês'` / `'AgroMáquinas Bacabal'` | CIGAM `UN Cód` mapped | |
 | `quantidade` | float | float | |
 | `vr_unitario` | float | `Valor Total Item / Quantidade` | |
 | `vr_nf` | float (negative for devoluções) | `Valor Total Item` | |

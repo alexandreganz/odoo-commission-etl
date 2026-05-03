@@ -8,7 +8,7 @@ official reports for Feb and March 2026 with R$ 0.00 delta.
 Query logic:
   sped.documento WHERE:
     operacao_id IN [1,2,29,38,40, 41,42,46]   (sales + devolução ops)
-    empresa_id  = 1                            (Santa Inês)
+    empresa_id  IN (1, 2)                      (Santa Inês + Bacabal)
     data_emissao BETWEEN '2026-01-01' AND '2026-12-31'
     situacao_nfe = 'autorizada'
     pedido_id   != False                       (exclude orphan devoluções)
@@ -88,7 +88,7 @@ def fetch_nfes(db, uid, pwd, models) -> list:
     """Fetch all authorized NF-es for 2026 matching report fiscal operations."""
     domain = [
         ('operacao_id', 'in', ALL_OP_IDS),
-        ('empresa_id', '=', 1),
+        ('empresa_id', 'in', [1, 2]),
         ('data_emissao', '>=', '2026-01-01'),
         ('data_emissao', '<=', '2026-12-31'),
         ('situacao_nfe', '=', 'autorizada'),

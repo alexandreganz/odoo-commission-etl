@@ -80,7 +80,7 @@ The extraction queries `sped.documento` (NF-e fiscal documents) at the item leve
 Key filters:
 - `operacao_id IN [1, 2, 29, 38, 40, 41, 42, 46]` — sales + devolução fiscal ops
 - `situacao_nfe = 'autorizada'` — only authorized NF-es
-- `empresa_id = 1` — Santa Inês
+- `empresa_id IN [1, 2]` — Santa Inês + Bacabal
 - `pedido_id != False` — exclude orphan devoluções
 
 See `CLAUDE.md` for full model relationships and technical details.
