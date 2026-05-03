@@ -585,7 +585,7 @@ with pivot_tab1:
 
         body_rows = []
         n_levels = len(row_level_names)
-        tree_row_count = 0
+        tree_row_count = [0]
 
         if n_levels >= 2 and isinstance(dyn_pivot.index, pd.MultiIndex):
             all_indices = list(dyn_pivot.index)
@@ -598,7 +598,6 @@ with pivot_tab1:
 
             def build_tree(indices_data, level, parent_id, parent_path):
                 """Recursively build tree rows for each grouping level."""
-                nonlocal tree_row_count
                 if level >= n_levels:
                     return
 
@@ -632,7 +631,7 @@ with pivot_tab1:
                             f'<td class="lbl" style="padding-left:{indent + 12}px; color:#444;">{display}</td>'
                             f'{cells}</tr>'
                         )
-                        tree_row_count += 1
+                        tree_row_count[0] += 1
                     else:
                         # Group row: show subtotal with toggle
                         subtotals = {}
@@ -660,7 +659,7 @@ with pivot_tab1:
                             f'<span class="icon-{nid}">▼</span> {display}</td>'
                             f'{cells}</tr>'
                         )
-                        tree_row_count += 1
+                        tree_row_count[0] += 1
 
                         # Recurse into children
                         build_tree(grp_items, level + 1, nid, parent_path + [grp_key])
@@ -681,7 +680,7 @@ with pivot_tab1:
                     for c in dyn_pivot.columns
                 )
                 body_rows.append(f'<tr><td class="lbl">{display}</td>{cells}</tr>')
-                tree_row_count += 1
+                tree_row_count[0] += 1
 
         # Grand total row
         if not isinstance(dyn_pivot.columns, pd.MultiIndex):
@@ -690,7 +689,7 @@ with pivot_tab1:
                 f'<td class="total-num">{fmt_dyn(col_totals[c])}</td>' for c in dyn_pivot.columns
             )
             body_rows.append(f'<tr class="year-row"><td class="lbl" style="padding-left:8px;">📊 Total</td>{total_cells}</tr>')
-            tree_row_count += 1
+            tree_row_count[0] += 1
 
         collapse_js = """
         <script>
@@ -749,7 +748,7 @@ with pivot_tab1:
         """
 
         table_body = "".join(body_rows)
-        estimated_height = min(max(tree_row_count * 28 + 80, 200), 800)
+        estimated_height = min(max(tree_row_count[0] * 28 + 80, 200), 800)
 
         dyn_html = f"""
         {pivot_css}
