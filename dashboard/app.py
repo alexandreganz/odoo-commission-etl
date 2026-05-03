@@ -393,111 +393,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-pivot_tab1, pivot_tab2 = st.tabs(["📊 Tabela Rápida", "🔧 Pivô Interativo"])
+pivot_tab1, pivot_tab2 = st.tabs(["🔧 Pivô Interativo", "📊 Tabela Rápida"])
 
 with pivot_tab1:
-    pivot_dim = st.radio(
-        "Linhas da tabela:",
-        ["Vendedor", "Família / Grupo", "Cliente"],
-        horizontal=True,
-        label_visibility="collapsed",
-    )
-    row_col_map = {"Vendedor": "vendedor", "Família / Grupo": "familia_grupo", "Cliente": "cliente"}
-    row_col = row_col_map[pivot_dim]
-
-    grp = (
-        fdf.groupby(["ano", row_col, "mes_nome", "mes"])["vr_nf"]
-        .sum()
-        .reset_index()
-    )
-
-    pivot = grp.pivot_table(
-        index=["ano", row_col],
-        columns="mes_nome",
-        values="vr_nf",
-        aggfunc="sum",
-        fill_value=0,
-    )
-    present_months = [m for m in MONTH_ORDER if m in pivot.columns]
-    pivot = pivot[present_months]
-    pivot["Total"] = pivot.sum(axis=1)
-    cols = present_months + ["Total"]
-
-    year_totals = pivot.groupby(level="ano").sum()
-    col_max = {c: max(pivot[c].max(), 1) for c in cols}
-
-
-    def fmt(v):
-        if v == 0:
-            return "—"
-        if v == int(v):
-            return f"R$ {int(v):,}"
-        return f"R$ {v:,.2f}"
-
-
-    def cell_bg(val, col):
-        if val == 0 or col_max[col] == 0:
-            return ""
-        ratio = min(abs(val) / col_max[col], 1)
-        if val < 0:
-            r, g, b = 255, int(235 - 60 * ratio), int(235 - 60 * ratio)
-        else:
-            r, g, b = int(230 - 70 * ratio), int(235 - 40 * ratio), 255
-        return f"background-color:rgb({r},{g},{b});"
-
-
-    rows_html = []
-    for yr in sorted(pivot.index.get_level_values("ano").unique()):
-        yr_vals = year_totals.loc[yr]
-        yr_cells = "".join(
-            f'<td class="num" style="color:white">{fmt(yr_vals[c])}</td>' for c in present_months
-        )
-        rows_html.append(
-            f'<tr class="year-row">'
-            f'<td class="lbl">📅 {yr}</td>'
-            f'{yr_cells}'
-            f'<td class="num" style="color:white">{fmt(yr_vals["Total"])}</td></tr>'
-        )
-
-        yr_df = pivot.loc[yr].sort_values("Total", ascending=False)
-        for label, row in yr_df.iterrows():
-            if row["Total"] == 0:
-                continue
-            month_cells = "".join(
-                f'<td class="num" style="{cell_bg(row[c], c)}">{fmt(row[c])}</td>' for c in present_months
-            )
-            display = label[:40] + "…" if len(str(label)) > 40 else label
-            rows_html.append(
-                f"<tr>"
-                f'<td class="lbl">{display}</td>'
-                f"{month_cells}"
-                f'<td class="total-num">{fmt(row["Total"])}</td></tr>'
-            )
-
-    month_headers = "".join(f"<th>{m}</th>" for m in present_months)
-    html = f"""
-    <div class="pivot-wrap">
-    <table>
-      <thead><tr>
-        <th class="lbl">{pivot_dim}</th>
-        {month_headers}
-        <th>Total</th>
-      </tr></thead>
-      <tbody>{"".join(rows_html)}</tbody>
-    </table>
-    </div>
-    """
-    st.markdown(html, unsafe_allow_html=True)
-
-    csv_out = pivot.reset_index().to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
-    st.download_button(
-        "⬇️ Download pivot CSV",
-        data=csv_out,
-        file_name="pivot_sales.csv",
-        mime="text/csv",
-    )
-
-with pivot_tab2:
     st.caption("Configure linhas, colunas, valores e filtros. A configuração é preservada ao alterar filtros laterais.")
 
     FIELD_OPTIONS = {
@@ -720,5 +618,105 @@ with pivot_tab2:
             file_name="pivot_dinamico.csv",
             mime="text/csv",
         )
+
+with pivot_tab2:
+    pivot_dim = st.radio(
+        "Linhas da tabela:",
+        ["Vendedor", "Família / Grupo", "Cliente"],
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    row_col_map = {"Vendedor": "vendedor", "Família / Grupo": "familia_grupo", "Cliente": "cliente"}
+    row_col = row_col_map[pivot_dim]
+
+    grp = (
+        fdf.groupby(["ano", row_col, "trimestre"])["vr_nf"]
+        .sum()
+        .reset_index()
+    )
+
+    pivot = grp.pivot_table(
+        index=["ano", row_col],
+        columns="trimestre",
+        values="vr_nf",
+        aggfunc="sum",
+        fill_value=0,
+    )
+    quarter_order = ["Q1", "Q2", "Q3", "Q4"]
+    present_quarters = [q for q in quarter_order if q in pivot.columns]
+    pivot = pivot[present_quarters]
+    pivot["Total"] = pivot.sum(axis=1)
+    cols = present_quarters + ["Total"]
+
+    year_totals = pivot.groupby(level="ano").sum()
+    col_max = {c: max(pivot[c].max(), 1) for c in cols}
+
+    def fmt(v):
+        if v == 0:
+            return "—"
+        if v == int(v):
+            return f"R$ {int(v):,}"
+        return f"R$ {v:,.2f}"
+
+    def cell_bg(val, col):
+        if val == 0 or col_max[col] == 0:
+            return ""
+        ratio = min(abs(val) / col_max[col], 1)
+        if val < 0:
+            r, g, b = 255, int(235 - 60 * ratio), int(235 - 60 * ratio)
+        else:
+            r, g, b = int(230 - 70 * ratio), int(235 - 40 * ratio), 255
+        return f"background-color:rgb({r},{g},{b});"
+
+    rows_html = []
+    for yr in sorted(pivot.index.get_level_values("ano").unique()):
+        yr_vals = year_totals.loc[yr]
+        yr_cells = "".join(
+            f'<td class="num" style="color:white">{fmt(yr_vals[c])}</td>' for c in present_quarters
+        )
+        rows_html.append(
+            f'<tr class="year-row">'
+            f'<td class="lbl">📅 {yr}</td>'
+            f'{yr_cells}'
+            f'<td class="num" style="color:white">{fmt(yr_vals["Total"])}</td></tr>'
+        )
+
+        yr_df = pivot.loc[yr].sort_values("Total", ascending=False)
+        for label, row in yr_df.iterrows():
+            if row["Total"] == 0:
+                continue
+            q_cells = "".join(
+                f'<td class="num" style="{cell_bg(row[c], c)}">{fmt(row[c])}</td>' for c in present_quarters
+            )
+            display = label[:40] + "…" if len(str(label)) > 40 else label
+            rows_html.append(
+                f"<tr>"
+                f'<td class="lbl">{display}</td>'
+                f"{q_cells}"
+                f'<td class="total-num">{fmt(row["Total"])}</td></tr>'
+            )
+
+    q_headers = "".join(f"<th>{q}</th>" for q in present_quarters)
+    html = f"""
+    <div class="pivot-wrap">
+    <table>
+      <thead><tr>
+        <th class="lbl">{pivot_dim}</th>
+        {q_headers}
+        <th>Total</th>
+      </tr></thead>
+      <tbody>{"".join(rows_html)}</tbody>
+    </table>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
+
+    csv_out = pivot.reset_index().to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+    st.download_button(
+        "⬇️ Download pivot CSV",
+        data=csv_out,
+        file_name="pivot_sales.csv",
+        mime="text/csv",
+    )
 
 st.caption(f"📊 {len(fdf):,} registros · R$ {total_revenue:,.0f} total filtrado")
