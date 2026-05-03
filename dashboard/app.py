@@ -256,13 +256,13 @@ ts = (
     .reset_index()
     .sort_values("date")
 )
-fig_ts = px.line(
+fig_ts = px.bar(
     ts,
     x="date",
     y="vr_nf",
     color="tipo_norm",
     labels={"date": "", "vr_nf": "R$", "tipo_norm": "Operação"},
-    color_discrete_map={"venda": COLORS["primary"], "devolucao": COLORS["negative"], "os": COLORS["neutral"]},
+    color_discrete_map={"venda": COLORS["primary"], "devolucao": COLORS["negative"], "os": COLORS["neutral"], "remessa": "#FFA726"},
 )
 fig_ts.update_layout(
     title=dict(text="Faturamento Mensal", font=dict(size=18, color=COLORS["primary"])),
@@ -274,8 +274,9 @@ fig_ts.update_layout(
     yaxis=dict(gridcolor="#eee", tickformat=",.0f"),
     xaxis=dict(gridcolor="#eee"),
     height=380,
+    barmode="group",
 )
-fig_ts.update_traces(line=dict(width=2.5), hovertemplate="R$ %{y:,.0f}")
+fig_ts.update_traces(hovertemplate="R$ %{y:,.0f}")
 st.plotly_chart(fig_ts, use_container_width=True)
 
 # ── Charts 2, 3 & 4 — Horizontal Bars side by side ───────────────────────────
