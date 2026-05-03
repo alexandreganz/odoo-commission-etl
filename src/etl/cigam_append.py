@@ -208,6 +208,14 @@ def build_cigam_df(raw: pd.DataFrame, pre_map: dict, odoo_names: list,
     cigam_tipo = raw['Operação Resultado'].astype(str)
     tipo_norm = cigam_tipo.str.strip().str.upper().map(CIGAM_TIPO_MAP).fillna('outro')
 
+    # Override: VENDA rows with 5117*-REMESSA tipo de operação → remessa
+    tipo_op_col = [c for c in raw.columns if c.startswith('Tipo de Oper')][0]
+    is_remessa = (
+        (cigam_tipo.str.strip().str.upper() == 'VENDA')
+        & raw[tipo_op_col].astype(str).str.contains('5117', na=False)
+    )
+    tipo_norm = tipo_norm.where(~is_remessa, 'remessa')
+
     return pd.DataFrame({
         'source':               'cigam',
         'ano':                  dates.dt.year.astype('Int64'),
