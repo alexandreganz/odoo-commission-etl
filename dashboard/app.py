@@ -147,11 +147,12 @@ with st.sidebar:
 
     # Operação (tipo_norm)
     tipo_options = sorted(df["tipo_norm"].unique().tolist())
-    tipo_labels = {"venda": "Venda", "devolucao": "Devolução", "os": "Ordem de Serviço"}
+    tipo_labels = {"venda": "Venda", "devolucao": "Devolução", "os": "Ordem de Serviço", "remessa": "Remessa"}
+    tipo_defaults = [t for t in tipo_options if t != "remessa"]
     sel_tipo = st.multiselect(
         "Operação",
         options=tipo_options,
-        default=tipo_options,
+        default=tipo_defaults,
         format_func=lambda x: tipo_labels.get(x, x),
     )
 

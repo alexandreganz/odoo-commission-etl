@@ -194,12 +194,11 @@ def load_cigam_raw(excel_path: Path) -> pd.DataFrame:
 
 def build_cigam_df(raw: pd.DataFrame, pre_map: dict, odoo_names: list,
                    skip_set: set = None) -> pd.DataFrame:
-    # Exclude remessa rows — delivery confirmations that duplicate VENDA ENTREGA FUTURA
+    # Identify remessa rows — delivery confirmations (keep but label as 'remessa')
     tipo_op_col = [c for c in raw.columns if c.startswith('Tipo de Oper')][0]
     is_remessa = raw[tipo_op_col].astype(str).str.contains('REMESSA', case=False, na=False)
     if is_remessa.any():
-        print(f'  Excluding {is_remessa.sum():,} remessa rows (delivery duplicates)')
-        raw = raw[~is_remessa].reset_index(drop=True)
+        print(f'  Found {is_remessa.sum():,} remessa rows (labeled as tipo_norm=remessa)')
 
     qtd = pd.to_numeric(raw['Quantidade'], errors='coerce').fillna(0)
     vti = pd.to_numeric(raw['Valor Total Item'], errors='coerce').fillna(0)
@@ -221,6 +220,7 @@ def build_cigam_df(raw: pd.DataFrame, pre_map: dict, odoo_names: list,
 
     cigam_tipo = raw['Operação Resultado'].astype(str)
     tipo_norm = cigam_tipo.str.strip().str.upper().map(CIGAM_TIPO_MAP).fillna('outro')
+    tipo_norm = tipo_norm.where(~is_remessa, 'remessa')
 
     return pd.DataFrame({
         'source':               'cigam',
