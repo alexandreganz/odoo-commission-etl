@@ -145,24 +145,29 @@ df = load_data()
 with st.sidebar:
     st.markdown("## 🔍 Filtros")
 
-    # Operação (tipo_norm)
+    # Operação (tipo_norm) — pill buttons
     tipo_options = sorted(df["tipo_norm"].unique().tolist())
     tipo_labels = {"venda": "Venda", "devolucao": "Devolução", "os": "Ordem de Serviço", "remessa": "Remessa"}
     tipo_defaults = [t for t in tipo_options if t != "remessa"]
-    sel_tipo = st.multiselect(
+    sel_tipo = st.pills(
         "Operação",
         options=tipo_options,
         default=tipo_defaults,
         format_func=lambda x: tipo_labels.get(x, x),
+        selection_mode="multi",
     )
+    if not sel_tipo:
+        sel_tipo = tipo_options
 
     # Date filters — Ano, Trimestre, Mês
     st.markdown("##### Período")
     all_anos = sorted(df["ano"].dropna().unique().tolist())
-    sel_anos = st.multiselect("Ano", all_anos, default=all_anos)
+    sel_anos = st.pills("Ano", all_anos, default=all_anos, selection_mode="multi")
+    if not sel_anos:
+        sel_anos = all_anos
 
     QUARTER_MAP = {"Q1": [1, 2, 3], "Q2": [4, 5, 6], "Q3": [7, 8, 9], "Q4": [10, 11, 12]}
-    sel_quarters = st.multiselect("Trimestre", list(QUARTER_MAP.keys()), default=[], placeholder="Todos")
+    sel_quarters = st.pills("Trimestre", list(QUARTER_MAP.keys()), default=[], selection_mode="multi")
     quarter_months = set()
     if sel_quarters:
         for q in sel_quarters:
@@ -170,23 +175,25 @@ with st.sidebar:
 
     all_meses = sorted(df["mes"].dropna().unique().tolist())
     mes_opts = [m for m in all_meses if m in quarter_months] if quarter_months else all_meses
-    sel_meses = st.multiselect(
+    sel_meses = st.pills(
         "Mês",
         mes_opts,
         default=mes_opts if sel_quarters else [],
         format_func=lambda m: MONTH_MAP.get(m, m),
-        placeholder="Todos",
+        selection_mode="multi",
     )
     if not sel_meses:
         sel_meses = mes_opts if mes_opts else all_meses
 
     st.markdown("##### Dimensões")
 
-    # Empresa (company)
+    # Empresa — pill buttons
     all_empresas = sorted(df["empresa"].dropna().unique().tolist())
-    sel_empresas = st.multiselect("Empresa", all_empresas, default=all_empresas)
+    sel_empresas = st.pills("Empresa", all_empresas, default=all_empresas, selection_mode="multi")
+    if not sel_empresas:
+        sel_empresas = all_empresas
 
-    # Vendedor
+    # Vendedor — searchable multiselect
     all_vends = sorted(df["vendedor"].unique().tolist())
     vend_search = st.text_input("🔍 Buscar vendedor", placeholder="Filtrar...")
     vend_opts = [v for v in all_vends if vend_search.lower() in v.lower()] if vend_search else all_vends
@@ -194,7 +201,7 @@ with st.sidebar:
     if not sel_vendedores:
         sel_vendedores = all_vends
 
-    # Familia Grupo
+    # Familia Grupo — searchable multiselect
     all_fams = sorted(df["familia_grupo"].unique().tolist())
     fam_search = st.text_input("🔍 Buscar família", placeholder="Filtrar...")
     fam_opts = [f for f in all_fams if fam_search.lower() in f.lower()] if fam_search else all_fams
