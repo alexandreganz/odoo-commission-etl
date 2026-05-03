@@ -153,32 +153,29 @@ with st.sidebar:
         format_func=lambda x: tipo_labels.get(x, x),
     )
 
-    # Date range — combined year-month slider
+    # Date filters — Ano, Trimestre, Mês
     st.markdown("##### Período")
-    # Build sorted list of year-month combos present in data
-    ym_pairs = (
-        df[["ano", "mes"]].drop_duplicates()
-        .sort_values(["ano", "mes"])
-        .reset_index(drop=True)
-    )
-    ym_labels = [f"{MONTH_MAP[int(r.mes)]}/{int(r.ano)}" for _, r in ym_pairs.iterrows()]
-    ym_indices = list(range(len(ym_labels)))
+    all_anos = sorted(df["ano"].dropna().unique().tolist())
+    sel_anos = st.multiselect("Ano", all_anos, default=all_anos)
 
-    if len(ym_indices) > 1:
-        date_range = st.select_slider(
-            "Período",
-            options=ym_indices,
-            value=(ym_indices[0], ym_indices[-1]),
-            format_func=lambda i: ym_labels[i],
-        )
-        sel_ym_set = set()
-        for idx in range(date_range[0], date_range[1] + 1):
-            r = ym_pairs.iloc[idx]
-            sel_ym_set.add((int(r.ano), int(r.mes)))
-    else:
-        st.write(f"Período: {ym_labels[0]}")
-        r = ym_pairs.iloc[0]
-        sel_ym_set = {(int(r.ano), int(r.mes))}
+    QUARTER_MAP = {"Q1": [1, 2, 3], "Q2": [4, 5, 6], "Q3": [7, 8, 9], "Q4": [10, 11, 12]}
+    sel_quarters = st.multiselect("Trimestre", list(QUARTER_MAP.keys()), default=[], placeholder="Todos")
+    quarter_months = set()
+    if sel_quarters:
+        for q in sel_quarters:
+            quarter_months.update(QUARTER_MAP[q])
+
+    all_meses = sorted(df["mes"].dropna().unique().tolist())
+    mes_opts = [m for m in all_meses if m in quarter_months] if quarter_months else all_meses
+    sel_meses = st.multiselect(
+        "Mês",
+        mes_opts,
+        default=mes_opts if sel_quarters else [],
+        format_func=lambda m: MONTH_MAP.get(m, m),
+        placeholder="Todos",
+    )
+    if not sel_meses:
+        sel_meses = mes_opts if mes_opts else all_meses
 
     st.markdown("##### Dimensões")
     # Vendedor
@@ -205,7 +202,8 @@ with st.sidebar:
 
 fdf = df[
     df["tipo_norm"].isin(sel_tipo)
-    & df[["ano", "mes"]].apply(lambda r: (int(r["ano"]), int(r["mes"])) in sel_ym_set, axis=1)
+    & df["ano"].isin(sel_anos)
+    & df["mes"].isin(sel_meses)
     & df["vendedor"].isin(sel_vendedores)
     & df["familia_grupo"].isin(sel_familias)
 ].copy()
