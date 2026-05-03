@@ -228,8 +228,7 @@ fdf = df[
 
 st.markdown(
     '<div class="dash-header">'
-    "<h1>📊 Sales Dashboard</h1>"
-    "<p>Visão consolidada Odoo + CIGAM · Atualizado automaticamente</p>"
+    "<h1>📊 Dashboard de Vendas</h1>"
     "</div>",
     unsafe_allow_html=True,
 )
